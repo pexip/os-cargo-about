@@ -77,3 +77,9 @@ rustflags = [
     "-Wrust_2018_idioms",
     # END - Embark standard lints v6 for Rust 1.55+
 ]
+
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
