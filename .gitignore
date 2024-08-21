@@ -1,2 +1,5 @@
 /target
 **/*.rs.bk
+
+# Ensure we don't screw up the vendor directory in the source package
+!/vendor/**
