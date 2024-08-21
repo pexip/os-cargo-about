@@ -1,0 +1,16 @@
+Source: cargo-about
+Section: devel
+Priority: optional
+Maintainer: Pexip AS <packaging@pexip.com>
+Standards-Version: 4.3.0
+Build-Depends: debhelper-compat (= 13), cargo
+Vcs-Browser: https://github.com/pexip/os-cargo-about/
+Vcs-Git: https://github.com/pexip/os-cargo-about.git
+XS-Upstream-Git: https://github.com/EmbarkStudios/cargo-about
+
+Package: cargo-about
+Architecture: any
+Depends: ${misc:Depends},
+ ${shlib:Depends},
+Description: Cargo plugin for license handling
+ Cargo plugin for generating a license listing for all dependencies of a crate.
