@@ -61,7 +61,7 @@ pub fn cmd(args: Args) -> anyhow::Result<()> {
                 .with_context(|| format!("unable to read file '{full_path}'"))?
         }
         Subcommand::Repo { rev, repo } => {
-            let gc = GitCache::default();
+            let gc = GitCache::online();
 
             gc.retrieve_remote(repo.as_str(), &rev, &args.path)
                 .context("failed to retrieve remote file")?
@@ -71,7 +71,7 @@ pub fn cmd(args: Args) -> anyhow::Result<()> {
             let root = PathBuf::from_path_buf(
                 home::cargo_home()
                     .context("unable to find CARGO_HOME directory")?
-                    .join("registry/src/github.com-1ecc6299db9ec823"),
+                    .join("registry/src/index.crates.io-6f17d22bba15001f"),
             )
             .map_err(|_e| anyhow::anyhow!("CARGO_HOME directory is not utf-8"))?;
 
@@ -95,7 +95,7 @@ pub fn cmd(args: Args) -> anyhow::Result<()> {
             let pkg: MinPkg =
                 toml::from_str(&manifest).context("failed to deserialize Cargo.toml")?;
 
-            let gc = GitCache::default();
+            let gc = GitCache::online();
             let vcs_info = GitCache::parse_vcs_info(&crate_path.join(".cargo_vcs_info.json"))
                 .context("failed to read sha1")?;
 
@@ -135,7 +135,10 @@ pub fn cmd(args: Args) -> anyhow::Result<()> {
     };
 
     if contents.contains('\r') {
-        log::warn!("{} contains CRLF line endings, the checksums will be calculated with normal LF line endings to match checksum verification", args.path);
+        log::warn!(
+            "{} contains CRLF line endings, the checksums will be calculated with normal LF line endings to match checksum verification",
+            args.path
+        );
     }
 
     let license_store = cargo_about::licenses::store_from_cache()?;
@@ -216,9 +219,7 @@ pub fn cmd(args: Args) -> anyhow::Result<()> {
 
     let overall_expression = spdx::Expression::parse(&final_expression).map_err(|e| {
         anyhow::anyhow!(
-            "failed to parse '{}' as the total expression for all of the licenses: {}",
-            final_expression,
-            e,
+            "failed to parse '{final_expression}' as the total expression for all of the licenses: {e}",
         )
     })?;
 

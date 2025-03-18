@@ -32,15 +32,15 @@ pub struct Args {
     /// Defaults to `<manifest_root>/about.toml` if not specified
     #[clap(short, long)]
     config: Option<PathBuf>,
-    /// The confidence threshold required for license files
-    /// to be positively identified: 0.0 - 1.0
+    /// The confidence threshold required for license files to be positively identified: 0.0 - 1.0
     #[clap(long, default_value = "0.8")]
     threshold: f32,
-    /// The name of the template to use when rendering. If only passing a
-    /// single template file to `templates` this is not used.
+    /// The name of the template to use when rendering.
+    ///
+    /// If only passing a single template file to `templates` this is not used.
     #[clap(short, long)]
     name: Option<String>,
-    /// A file to write the generated output to. Typically an .html file.
+    /// A file to write the generated output to, typically an .html file.
     #[clap(short, long)]
     output_file: Option<PathBuf>,
     /// Space-separated list of features to activate
@@ -52,8 +52,33 @@ pub struct Args {
     /// Do not activate the `default` feature
     #[clap(long)]
     no_default_features: bool,
-    /// The path of the Cargo.toml for the root crate, defaults to the
-    /// current crate or workspace in the current working directory
+    /// The target triples to use for dependency graph filtering.
+    ///
+    /// Overrides the `targets` configuration value, and note that unlike cargo
+    /// itself this can take multiple targets instead of just one.
+    #[clap(long)]
+    target: Vec<String>,
+    /// Run without accessing the network.
+    ///
+    /// In addition to cargo not fetching crates, this will mean that only
+    /// local files will be crawled for license information.
+    /// 1. clearlydefined.io will not be used, so some more ambiguous/complicated
+    ///     license files might be ignored
+    /// 2. Crates that are improperly packaged and don't contain their LICENSE
+    ///     file(s) will fallback to the default license file, missing eg.
+    ///     copyright information in the license that would be retrieved from
+    ///     the original git repo for the crate in question
+    #[arg(long)]
+    offline: bool,
+    /// Assert that `Cargo.lock` will remain unchanged
+    #[arg(long)]
+    locked: bool,
+    /// Equivalent to specifying both `--locked` and `--offline`
+    #[arg(long)]
+    frozen: bool,
+    /// The path of the Cargo.toml for the root crate.
+    ///
+    /// Defaults to the current crate or workspace in the current working directory
     #[clap(short, long)]
     manifest_path: Option<PathBuf>,
     /// Scan licenses for the entire workspace, not just the active package
@@ -66,8 +91,11 @@ pub struct Args {
     /// The format of the output, defaults to `handlebars`.
     #[clap(long, default_value_t)]
     format: OutputFormat,
-    /// The template(s) or template directory to use. Must either be a `.hbs`
-    /// file, or have at least one `.hbs` file in it if it is a directory.
+    /// The template(s) or template directory to use.
+    ///
+    /// Must either be a `.hbs` file, or have at least one `.hbs` file in it if
+    /// it is a directory.
+    ///
     /// Required if `--format` is not `json`
     templates: Option<PathBuf>,
 }
@@ -148,6 +176,18 @@ pub fn cmd(args: Args, color: crate::Color) -> anyhow::Result<()> {
         "handlebars template(s) must be specified when using handlebars output format"
     );
 
+    // Check if the parent process is powershell, if it is, assume that it will
+    // screw up the output https://github.com/EmbarkStudios/cargo-about/issues/198
+    // and inform the user about the -o, --output-file option
+    let redirect_stdout =
+        args.output_file.is_none() || args.output_file.as_deref() == Some(Path::new("-"));
+    if redirect_stdout {
+        anyhow::ensure!(
+            !cargo_about::is_powershell_parent(),
+            "cargo-about should not redirect its output in powershell, please use the -o, --output-file option to redirect to a file to avoid powershell encoding issues"
+        );
+    }
+
     rayon::scope(|s| {
         s.spawn(|_| {
             log::info!("gathering crates for {manifest_path}");
@@ -157,7 +197,13 @@ pub fn cmd(args: Args, color: crate::Color) -> anyhow::Result<()> {
                 args.all_features,
                 args.features.clone(),
                 args.workspace,
+                krates::LockOptions {
+                    frozen: args.frozen,
+                    locked: args.locked,
+                    offline: args.offline,
+                },
                 &cfg,
+                &args.target,
             ));
         });
         s.spawn(|_| {
@@ -222,15 +268,16 @@ pub fn cmd(args: Args, color: crate::Color) -> anyhow::Result<()> {
 
     log::info!("gathered {} crates", krates.len());
 
-    let client = reqwest::blocking::ClientBuilder::new()
-        .timeout(std::time::Duration::from_secs(
-            cfg.clearly_defined_timeout_secs.unwrap_or(30),
-        ))
-        .build()?;
-    let summary = licenses::Gatherer::with_store(std::sync::Arc::new(store), client.into())
+    let client = if !args.offline && !args.frozen {
+        Some(reqwest::blocking::ClientBuilder::new().build()?)
+    } else {
+        None
+    };
+
+    let summary = licenses::Gatherer::with_store(std::sync::Arc::new(store))
         .with_confidence_threshold(args.threshold)
         .with_max_depth(cfg.max_depth.map(|md| md as _))
-        .gather(&krates, &cfg);
+        .gather(&krates, &cfg, client);
 
     let (files, resolved) =
         licenses::resolution::resolve(&summary, &cfg.accepted, &cfg.crates, args.fail);
@@ -261,13 +308,11 @@ pub fn cmd(args: Args, color: crate::Color) -> anyhow::Result<()> {
         serde_json::to_string(&input)?
     };
 
-    match args.output_file.as_ref() {
-        None => println!("{output}"),
-        Some(path) if path == Path::new("-") => println!("{output}"),
-        Some(path) => {
-            std::fs::write(path, output)
-                .with_context(|| format!("output file {path} could not be written"))?;
-        }
+    if let Some(path) = &args.output_file.filter(|_| !redirect_stdout) {
+        std::fs::write(path, output)
+            .with_context(|| format!("output file {path} could not be written"))?;
+    } else {
+        println!("{output}");
     }
 
     Ok(())
@@ -286,6 +331,8 @@ struct License<'a> {
     name: String,
     /// The SPDX short identifier for the license
     id: String,
+    /// True if this is the first license of its kind in the flat array
+    first_of_kind: bool,
     /// The full license text
     text: String,
     /// The path where the license text was sourced from
@@ -322,7 +369,7 @@ fn generate<'kl>(
 
     let diag_cfg = term::Config::default();
 
-    let licenses = {
+    let mut licenses = {
         let mut licenses = BTreeMap::new();
         for (krate_license, resolved) in nfos
             .iter()
@@ -369,6 +416,7 @@ fn generate<'kl>(
                                             text: text.clone(),
                                             source_path: Some(lf.path.clone()),
                                             used_by: Vec::new(),
+                                            first_of_kind: false,
                                         };
                                         Some(license)
                                     }
@@ -390,6 +438,7 @@ fn generate<'kl>(
                                 text: id.text().to_owned(),
                                 source_path: None,
                                 used_by: Vec::new(),
+                                first_of_kind: false,
                             });
                         }
                     }
@@ -439,7 +488,7 @@ fn generate<'kl>(
 
     let mut overview: Vec<LicenseSet> = Vec::with_capacity(256);
 
-    for (ndx, lic) in licenses.iter().enumerate() {
+    for (ndx, lic) in licenses.iter_mut().enumerate() {
         match overview.binary_search_by(|i| i.id.cmp(&lic.id)) {
             Ok(i) => {
                 let ov = &mut overview[i];
@@ -457,6 +506,7 @@ fn generate<'kl>(
 
                 ls.indices.push(ndx);
                 overview.insert(i, ls);
+                lic.first_of_kind = true;
             }
         }
     }

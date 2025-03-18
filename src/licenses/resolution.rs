@@ -1,6 +1,6 @@
 use crate::{
-    licenses::{config, KrateLicense, LicenseInfo},
     Krate,
+    licenses::{KrateLicense, LicenseInfo, config},
 };
 use spdx::{Expression, LicenseReq, Licensee};
 use std::fmt;
@@ -30,7 +30,7 @@ impl<'acc> Accepted<'acc> {
     }
 }
 
-impl<'acc> fmt::Display for Accepted<'acc> {
+impl fmt::Display for Accepted<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "global: [")?;
         for (id, val) in self.global.iter().enumerate() {
@@ -139,7 +139,7 @@ pub fn resolve(
                         if fail_on_missing {
                             resolved.diagnostics.push(Diagnostic::new(Severity::Error).with_message(msg));
                         } else {
-                            log::warn!("{}", msg);
+                            log::warn!("{msg}");
                         }
 
                         return Some(resolved);
