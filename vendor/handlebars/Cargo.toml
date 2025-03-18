@@ -11,10 +11,16 @@
 
 [package]
 edition = "2021"
-rust-version = "1.72"
+rust-version = "1.73"
 name = "handlebars"
-version = "5.1.2"
+version = "6.3.1"
 authors = ["Ning Sun <sunng@pm.me>"]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Handlebars templating implemented in Rust."
 homepage = "https://github.com/sunng87/handlebars-rust"
 documentation = "https://docs.rs/crate/handlebars/"
@@ -51,12 +57,97 @@ name = "handlebars-cli"
 path = "src/cli.rs"
 
 [[example]]
+name = "block_helper_macro_let"
+path = "examples/block_helper_macro_let.rs"
+
+[[example]]
+name = "decorator"
+path = "examples/decorator.rs"
+
+[[example]]
+name = "dev_mode"
+path = "examples/dev_mode.rs"
+
+[[example]]
+name = "error"
+path = "examples/error.rs"
+
+[[example]]
+name = "helper_macro"
+path = "examples/helper_macro.rs"
+
+[[example]]
+name = "partials"
+path = "examples/partials.rs"
+
+[[example]]
+name = "quick"
+path = "examples/quick.rs"
+
+[[example]]
+name = "render"
+path = "examples/render.rs"
+
+[[example]]
+name = "render_file"
+path = "examples/render_file.rs"
+
+[[example]]
 name = "script"
+path = "examples/script.rs"
 required-features = ["script_helper"]
+
+[[test]]
+name = "block_context"
+path = "tests/block_context.rs"
+
+[[test]]
+name = "data_helper"
+path = "tests/data_helper.rs"
+
+[[test]]
+name = "embed"
+path = "tests/embed.rs"
+
+[[test]]
+name = "escape"
+path = "tests/escape.rs"
+
+[[test]]
+name = "helper_function_lifetime"
+path = "tests/helper_function_lifetime.rs"
+
+[[test]]
+name = "helper_macro"
+path = "tests/helper_macro.rs"
+
+[[test]]
+name = "helper_with_space"
+path = "tests/helper_with_space.rs"
+
+[[test]]
+name = "root_var"
+path = "tests/root_var.rs"
+
+[[test]]
+name = "subexpression"
+path = "tests/subexpression.rs"
+
+[[test]]
+name = "template_names"
+path = "tests/template_names.rs"
+
+[[test]]
+name = "whitespace"
+path = "tests/whitespace.rs"
 
 [[bench]]
 name = "bench"
+path = "benches/bench.rs"
 harness = false
+
+[dependencies.derive_builder]
+version = "0.20.2"
 
 [dependencies.heck]
 version = "0.5"
@@ -64,6 +155,9 @@ optional = true
 
 [dependencies.log]
 version = "0.4.0"
+
+[dependencies.num-order]
+version = "1.2.0"
 
 [dependencies.pest]
 version = "2.1.0"
@@ -91,7 +185,7 @@ version = "1.0.0"
 version = "1.0.39"
 
 [dependencies.thiserror]
-version = "1"
+version = "2"
 
 [dependencies.walkdir]
 version = "2.2.3"
@@ -101,7 +195,7 @@ optional = true
 version = "0.5"
 
 [dev-dependencies.env_logger]
-version = "0.10"
+version = "0.11"
 
 [dev-dependencies.serde_derive]
 version = "1.0.75"
@@ -128,7 +222,7 @@ script_helper = ["rhai"]
 string_helpers = ["heck"]
 
 [target."cfg(unix)".dev-dependencies.pprof]
-version = "0.13"
+version = "0.14"
 features = [
     "flamegraph",
     "prost-codec",

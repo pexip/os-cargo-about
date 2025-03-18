@@ -13,9 +13,10 @@
 edition = "2021"
 rust-version = "1.63"
 name = "hyper-util"
-version = "0.1.5"
+version = "0.1.10"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 build = false
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -80,7 +81,7 @@ name = "legacy_client"
 path = "tests/legacy_client.rs"
 
 [dependencies.bytes]
-version = "1"
+version = "1.7.1"
 
 [dependencies.futures-channel]
 version = "0.3"
@@ -97,7 +98,7 @@ version = "1.0"
 version = "1.0.0"
 
 [dependencies.hyper]
-version = "1.3.0"
+version = "1.4.0"
 
 [dependencies.pin-project-lite]
 version = "0.2.4"
@@ -109,15 +110,6 @@ optional = true
 
 [dependencies.tokio]
 version = "1"
-optional = true
-default-features = false
-
-[dependencies.tower]
-version = "0.4.1"
-features = [
-    "make",
-    "util",
-]
 optional = true
 default-features = false
 
@@ -138,7 +130,7 @@ version = "1"
 version = "0.1.0"
 
 [dev-dependencies.hyper]
-version = "1.3.0"
+version = "1.4.0"
 features = ["full"]
 
 [dev-dependencies.pretty_env_logger]
@@ -161,7 +153,6 @@ client = [
     "hyper/client",
     "dep:tracing",
     "dep:futures-channel",
-    "dep:tower",
     "dep:tower-service",
 ]
 client-legacy = [
@@ -192,11 +183,9 @@ server-auto = [
 server-graceful = [
     "server",
     "tokio/sync",
+    "futures-util/alloc",
 ]
-service = [
-    "dep:tower",
-    "dep:tower-service",
-]
+service = ["dep:tower-service"]
 tokio = [
     "dep:tokio",
     "tokio/net",
@@ -204,5 +193,5 @@ tokio = [
     "tokio/time",
 ]
 
-[target."cfg(any(target_os = \"linux\", target_os = \"macos\"))".dev-dependencies.pnet_datalink]
-version = "0.34.0"
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dev-dependencies.pnet_datalink]
+version = "0.35.0"

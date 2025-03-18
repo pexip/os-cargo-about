@@ -144,6 +144,13 @@ impl<'data, R: ReadRef<'data>> ArchiveFile<'data, R> {
                                 members_offset = tail;
                             }
                         }
+                        if tail < len {
+                            let member = ArchiveMember::parse(data, &mut tail, file.names, thin)?;
+                            if member.name == b"/<ECSYMBOLS>/" {
+                                // COFF EC Symbol Table.
+                                members_offset = tail;
+                            }
+                        }
                     } else if member.name == b"//" {
                         // GNU names table.
                         file.names = member.data(data)?;
@@ -623,7 +630,7 @@ enum SymbolIteratorInternal<'data> {
     /// Contains:
     /// - the size in bytes of the offsets array as a 32-bit little-endian integer
     /// - the offsets array, for which each entry is a pair of 32-bit little-endian integers
-    /// for the offset of the member header and the offset of the symbol name
+    ///   for the offset of the member header and the offset of the symbol name
     /// - the size in bytes of the symbol names as a 32-bit little-endian integer
     /// - the symbol names as null-terminated strings
     Bsd {
@@ -635,7 +642,7 @@ enum SymbolIteratorInternal<'data> {
     /// Contains:
     /// - the size in bytes of the offsets array as a 64-bit little-endian integer
     /// - the offsets array, for which each entry is a pair of 64-bit little-endian integers
-    /// for the offset of the member header and the offset of the symbol name
+    ///   for the offset of the member header and the offset of the symbol name
     /// - the size in bytes of the symbol names as a 64-bit little-endian integer
     /// - the symbol names as null-terminated strings
     Bsd64 {

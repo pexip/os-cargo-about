@@ -61,6 +61,9 @@ pub use read_cache::*;
 mod util;
 pub use util::*;
 
+#[cfg(any(feature = "elf", feature = "macho"))]
+mod gnu_compression;
+
 #[cfg(any(
     feature = "coff",
     feature = "elf",
@@ -121,6 +124,8 @@ impl fmt::Display for Error {
 
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
+#[cfg(all(not(feature = "std"), core_error))]
+impl core::error::Error for Error {}
 
 /// The result type used within the read module.
 pub type Result<T> = result::Result<T, Error>;
@@ -379,9 +384,21 @@ pub enum ObjectKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SectionIndex(pub usize);
 
+impl fmt::Display for SectionIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// The index used to identify a symbol in a symbol table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymbolIndex(pub usize);
+
+impl fmt::Display for SymbolIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 /// The section where an [`ObjectSymbol`] is defined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -500,7 +517,7 @@ impl<'data> SymbolMapEntry for SymbolMapName<'data> {
 #[derive(Debug, Default, Clone)]
 pub struct ObjectMap<'data> {
     symbols: SymbolMap<ObjectMapEntry<'data>>,
-    objects: Vec<&'data [u8]>,
+    objects: Vec<ObjectMapFile<'data>>,
 }
 
 impl<'data> ObjectMap<'data> {
@@ -519,12 +536,12 @@ impl<'data> ObjectMap<'data> {
 
     /// Get all objects in the map.
     #[inline]
-    pub fn objects(&self) -> &[&'data [u8]] {
+    pub fn objects(&self) -> &[ObjectMapFile<'data>] {
         &self.objects
     }
 }
 
-/// An [`ObjectMap`] entry.
+/// A symbol in an [`ObjectMap`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ObjectMapEntry<'data> {
     address: u64,
@@ -562,8 +579,8 @@ impl<'data> ObjectMapEntry<'data> {
 
     /// Get the object file name.
     #[inline]
-    pub fn object(&self, map: &ObjectMap<'data>) -> &'data [u8] {
-        map.objects[self.object]
+    pub fn object<'a>(&self, map: &'a ObjectMap<'data>) -> &'a ObjectMapFile<'data> {
+        &map.objects[self.object]
     }
 }
 
@@ -571,6 +588,32 @@ impl<'data> SymbolMapEntry for ObjectMapEntry<'data> {
     #[inline]
     fn address(&self) -> u64 {
         self.address
+    }
+}
+
+/// An object file name in an [`ObjectMap`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ObjectMapFile<'data> {
+    path: &'data [u8],
+    member: Option<&'data [u8]>,
+}
+
+impl<'data> ObjectMapFile<'data> {
+    #[cfg(feature = "macho")]
+    fn new(path: &'data [u8], member: Option<&'data [u8]>) -> Self {
+        ObjectMapFile { path, member }
+    }
+
+    /// Get the path to the file containing the object.
+    #[inline]
+    pub fn path(&self) -> &'data [u8] {
+        self.path
+    }
+
+    /// If the file is an archive, get the name of the member containing the object.
+    #[inline]
+    pub fn member(&self) -> Option<&'data [u8]> {
+        self.member
     }
 }
 
@@ -781,6 +824,16 @@ impl RelocationMap {
                         .read_error("Relocation with invalid symbol")?;
                     entry.addend = symbol.address().wrapping_add(entry.addend);
                 }
+                RelocationTarget::Section(section_idx) => {
+                    let section = file
+                        .section_by_index(section_idx)
+                        .read_error("Relocation with invalid section")?;
+                    // DWARF parsers expect references to DWARF sections to be section offsets,
+                    // not addresses. Addresses are useful for everything else.
+                    if section.kind() != SectionKind::Debug {
+                        entry.addend = section.address().wrapping_add(entry.addend);
+                    }
+                }
                 _ => {
                     return Err(Error("Unsupported relocation target"));
                 }
@@ -916,31 +969,7 @@ impl<'data> CompressedData<'data> {
         match self.format {
             CompressionFormat::None => Ok(Cow::Borrowed(self.data)),
             #[cfg(feature = "compression")]
-            CompressionFormat::Zlib => {
-                use core::convert::TryInto;
-                let size = self
-                    .uncompressed_size
-                    .try_into()
-                    .ok()
-                    .read_error("Uncompressed data size is too large.")?;
-                let mut decompressed = Vec::new();
-                decompressed
-                    .try_reserve_exact(size)
-                    .ok()
-                    .read_error("Uncompressed data allocation failed")?;
-                let mut decompress = flate2::Decompress::new(true);
-                decompress
-                    .decompress_vec(
-                        self.data,
-                        &mut decompressed,
-                        flate2::FlushDecompress::Finish,
-                    )
-                    .ok()
-                    .read_error("Invalid zlib compressed data")?;
-                Ok(Cow::Owned(decompressed))
-            }
-            #[cfg(feature = "compression")]
-            CompressionFormat::Zstandard => {
+            CompressionFormat::Zlib | CompressionFormat::Zstandard => {
                 use core::convert::TryInto;
                 use std::io::Read;
                 let size = self
@@ -953,13 +982,53 @@ impl<'data> CompressedData<'data> {
                     .try_reserve_exact(size)
                     .ok()
                     .read_error("Uncompressed data allocation failed")?;
-                let mut decoder = ruzstd::StreamingDecoder::new(self.data)
-                    .ok()
-                    .read_error("Invalid zstd compressed data")?;
-                decoder
-                    .read_to_end(&mut decompressed)
-                    .ok()
-                    .read_error("Invalid zstd compressed data")?;
+
+                match self.format {
+                    CompressionFormat::Zlib => {
+                        let mut decompress = flate2::Decompress::new(true);
+                        decompress
+                            .decompress_vec(
+                                self.data,
+                                &mut decompressed,
+                                flate2::FlushDecompress::Finish,
+                            )
+                            .ok()
+                            .read_error("Invalid zlib compressed data")?;
+                    }
+                    CompressionFormat::Zstandard => {
+                        let mut input = self.data;
+                        while !input.is_empty() {
+                            let mut decoder = match ruzstd::StreamingDecoder::new(&mut input) {
+                                Ok(decoder) => decoder,
+                                Err(
+                                    ruzstd::frame_decoder::FrameDecoderError::ReadFrameHeaderError(
+                                        ruzstd::frame::ReadFrameHeaderError::SkipFrame {
+                                            length,
+                                            ..
+                                        },
+                                    ),
+                                ) => {
+                                    input = input
+                                        .get(length as usize..)
+                                        .read_error("Invalid zstd compressed data")?;
+                                    continue;
+                                }
+                                x => x.ok().read_error("Invalid zstd compressed data")?,
+                            };
+                            decoder
+                                .read_to_end(&mut decompressed)
+                                .ok()
+                                .read_error("Invalid zstd compressed data")?;
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+                if size != decompressed.len() {
+                    return Err(Error(
+                        "Uncompressed data size does not match compression header",
+                    ));
+                }
+
                 Ok(Cow::Owned(decompressed))
             }
             _ => Err(Error("Unsupported compressed data.")),

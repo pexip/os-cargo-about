@@ -44,7 +44,7 @@ where
     pub(super) header_offset: u64,
     pub(super) header: &'data Mach,
     pub(super) segments: Vec<MachOSegmentInternal<'data, Mach, R>>,
-    pub(super) sections: Vec<MachOSectionInternal<'data, Mach>>,
+    pub(super) sections: Vec<MachOSectionInternal<'data, Mach, R>>,
     pub(super) symbols: SymbolTable<'data, Mach, R>,
 }
 
@@ -65,11 +65,10 @@ where
         if let Ok(mut commands) = header.load_commands(endian, data, 0) {
             while let Ok(Some(command)) = commands.next() {
                 if let Some((segment, section_data)) = Mach::Segment::from_command(command)? {
-                    let segment_index = segments.len();
                     segments.push(MachOSegmentInternal { segment, data });
                     for section in segment.sections(endian, section_data)? {
                         let index = SectionIndex(sections.len() + 1);
-                        sections.push(MachOSectionInternal::parse(index, segment_index, section));
+                        sections.push(MachOSectionInternal::parse(index, section, data));
                     }
                 } else if let Some(symtab) = command.symtab()? {
                     symbols = symtab.symbols(endian, data)?;
@@ -110,6 +109,7 @@ where
                 if let Some((segment, section_data)) = Mach::Segment::from_command(command)? {
                     // Each segment can be stored in a different subcache. Get the segment's
                     // address and look it up in the cache mappings, to find the correct cache data.
+                    // This was observed for the arm64e __LINKEDIT segment in macOS 12.0.1.
                     let addr = segment.vmaddr(endian).into();
                     let (data, _offset) = image
                         .cache
@@ -118,12 +118,11 @@ where
                     if segment.name() == macho::SEG_LINKEDIT.as_bytes() {
                         linkedit_data = Some(data);
                     }
-                    let segment_index = segments.len();
                     segments.push(MachOSegmentInternal { segment, data });
 
                     for section in segment.sections(endian, section_data)? {
                         let index = SectionIndex(sections.len() + 1);
-                        sections.push(MachOSectionInternal::parse(index, segment_index, section));
+                        sections.push(MachOSectionInternal::parse(index, section, data));
                     }
                 } else if let Some(st) = command.symtab()? {
                     symtab = Some(st);
@@ -154,21 +153,12 @@ where
     pub(super) fn section_internal(
         &self,
         index: SectionIndex,
-    ) -> Result<&MachOSectionInternal<'data, Mach>> {
+    ) -> Result<&MachOSectionInternal<'data, Mach, R>> {
         index
             .0
             .checked_sub(1)
             .and_then(|index| self.sections.get(index))
             .read_error("Invalid Mach-O section index")
-    }
-
-    pub(super) fn segment_internal(
-        &self,
-        index: usize,
-    ) -> Result<&MachOSegmentInternal<'data, Mach, R>> {
-        self.segments
-            .get(index)
-            .read_error("Invalid Mach-O segment index")
     }
 
     /// Returns the endianness.
@@ -182,8 +172,27 @@ where
     }
 
     /// Returns the raw Mach-O file header.
+    #[deprecated(note = "Use `macho_header` instead")]
     pub fn raw_header(&self) -> &'data Mach {
         self.header
+    }
+
+    /// Get the raw Mach-O file header.
+    pub fn macho_header(&self) -> &'data Mach {
+        self.header
+    }
+
+    /// Get the Mach-O load commands.
+    pub fn macho_load_commands(&self) -> Result<LoadCommandIterator<'data, Mach::Endian>> {
+        self.header
+            .load_commands(self.endian, self.data, self.header_offset)
+    }
+
+    /// Get the Mach-O symbol table.
+    ///
+    /// Returns an empty symbol table if the file has no symbol table.
+    pub fn macho_symbol_table(&self) -> &SymbolTable<'data, Mach, R> {
+        &self.symbols
     }
 
     /// Return the `LC_BUILD_VERSION` load command if present.
@@ -212,16 +221,56 @@ where
     Mach: MachHeader,
     R: ReadRef<'data>,
 {
-    type Segment<'file> = MachOSegment<'data, 'file, Mach, R> where Self: 'file, 'data: 'file;
-    type SegmentIterator<'file> = MachOSegmentIterator<'data, 'file, Mach, R> where Self: 'file, 'data: 'file;
-    type Section<'file> = MachOSection<'data, 'file, Mach, R> where Self: 'file, 'data: 'file;
-    type SectionIterator<'file> = MachOSectionIterator<'data, 'file, Mach, R> where Self: 'file, 'data: 'file;
-    type Comdat<'file> = MachOComdat<'data, 'file, Mach, R> where Self: 'file, 'data: 'file;
-    type ComdatIterator<'file> = MachOComdatIterator<'data, 'file, Mach, R> where Self: 'file, 'data: 'file;
-    type Symbol<'file> = MachOSymbol<'data, 'file, Mach, R> where Self: 'file, 'data: 'file;
-    type SymbolIterator<'file> = MachOSymbolIterator<'data, 'file, Mach, R> where Self: 'file, 'data: 'file;
-    type SymbolTable<'file> = MachOSymbolTable<'data, 'file, Mach, R> where Self: 'file, 'data: 'file;
-    type DynamicRelocationIterator<'file> = NoDynamicRelocationIterator where Self: 'file, 'data: 'file;
+    type Segment<'file>
+        = MachOSegment<'data, 'file, Mach, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SegmentIterator<'file>
+        = MachOSegmentIterator<'data, 'file, Mach, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type Section<'file>
+        = MachOSection<'data, 'file, Mach, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SectionIterator<'file>
+        = MachOSectionIterator<'data, 'file, Mach, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type Comdat<'file>
+        = MachOComdat<'data, 'file, Mach, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type ComdatIterator<'file>
+        = MachOComdatIterator<'data, 'file, Mach, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type Symbol<'file>
+        = MachOSymbol<'data, 'file, Mach, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SymbolIterator<'file>
+        = MachOSymbolIterator<'data, 'file, Mach, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SymbolTable<'file>
+        = MachOSymbolTable<'data, 'file, Mach, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type DynamicRelocationIterator<'file>
+        = NoDynamicRelocationIterator
+    where
+        Self: 'file,
+        'data: 'file;
 
     fn architecture(&self) -> Architecture {
         match self.header.cputype(self.endian) {
@@ -278,32 +327,32 @@ where
         &'file self,
         section_name: &[u8],
     ) -> Option<MachOSection<'data, 'file, Mach, R>> {
-        // Translate the "." prefix to the "__" prefix used by OSX/Mach-O, eg
-        // ".debug_info" to "__debug_info", and limit to 16 bytes total.
-        let system_name = if section_name.starts_with(b".") {
-            if section_name.len() > 15 {
-                Some(&section_name[1..15])
-            } else {
-                Some(&section_name[1..])
-            }
-        } else {
-            None
+        // Translate the section_name by stripping the query_prefix to construct
+        // a function that matches names starting with name_prefix, taking into
+        // consideration the maximum section name length.
+        let make_prefix_matcher = |query_prefix: &'static [u8], name_prefix: &'static [u8]| {
+            const MAX_SECTION_NAME_LEN: usize = 16;
+            let suffix = section_name.strip_prefix(query_prefix).map(|suffix| {
+                let max_len = MAX_SECTION_NAME_LEN - name_prefix.len();
+                &suffix[..suffix.len().min(max_len)]
+            });
+            move |name: &[u8]| suffix.is_some() && name.strip_prefix(name_prefix) == suffix
         };
-        let cmp_section_name = |section: &MachOSection<'data, 'file, Mach, R>| {
-            section
-                .name_bytes()
-                .map(|name| {
-                    section_name == name
-                        || system_name
-                            .filter(|system_name| {
-                                name.starts_with(b"__") && name[2..] == **system_name
-                            })
-                            .is_some()
-                })
-                .unwrap_or(false)
-        };
-
-        self.sections().find(cmp_section_name)
+        // Matches "__text" when searching for ".text" and "__debug_str_offs"
+        // when searching for ".debug_str_offsets", as is common in
+        // macOS/Mach-O.
+        let matches_underscores_prefix = make_prefix_matcher(b".", b"__");
+        // Matches "__zdebug_info" when searching for ".debug_info" and
+        // "__zdebug_str_off" when searching for ".debug_str_offsets", as is
+        // used by Go when using GNU-style compression.
+        let matches_zdebug_prefix = make_prefix_matcher(b".debug_", b"__zdebug_");
+        self.sections().find(|section| {
+            section.name_bytes().map_or(false, |name| {
+                name == section_name
+                    || matches_underscores_prefix(name)
+                    || matches_zdebug_prefix(name)
+            })
+        })
     }
 
     fn section_by_index(&self, index: SectionIndex) -> Result<MachOSection<'data, '_, Mach, R>> {
@@ -326,15 +375,12 @@ where
     }
 
     fn symbol_by_index(&self, index: SymbolIndex) -> Result<MachOSymbol<'data, '_, Mach, R>> {
-        let nlist = self.symbols.symbol(index.0)?;
+        let nlist = self.symbols.symbol(index)?;
         MachOSymbol::new(self, index, nlist).read_error("Unsupported Mach-O symbol index")
     }
 
     fn symbols(&self) -> MachOSymbolIterator<'data, '_, Mach, R> {
-        MachOSymbolIterator {
-            file: self,
-            index: 0,
-        }
+        MachOSymbolIterator::new(self)
     }
 
     #[inline]
@@ -343,10 +389,7 @@ where
     }
 
     fn dynamic_symbols(&self) -> MachOSymbolIterator<'data, '_, Mach, R> {
-        MachOSymbolIterator {
-            file: self,
-            index: self.symbols.len(),
-        }
+        MachOSymbolIterator::empty(self)
     }
 
     #[inline]
@@ -384,7 +427,7 @@ where
             let index = dysymtab.iundefsym.get(self.endian) as usize;
             let number = dysymtab.nundefsym.get(self.endian) as usize;
             for i in index..(index.wrapping_add(number)) {
-                let symbol = self.symbols.symbol(i)?;
+                let symbol = self.symbols.symbol(SymbolIndex(i))?;
                 let name = symbol.name(self.endian, self.symbols.strings())?;
                 let library = if twolevel {
                     libraries
@@ -420,7 +463,7 @@ where
             let index = dysymtab.iextdefsym.get(self.endian) as usize;
             let number = dysymtab.nextdefsym.get(self.endian) as usize;
             for i in index..(index.wrapping_add(number)) {
-                let symbol = self.symbols.symbol(i)?;
+                let symbol = self.symbols.symbol(SymbolIndex(i))?;
                 let name = symbol.name(self.endian, self.symbols.strings())?;
                 let address = symbol.n_value(self.endian).into();
                 exports.push(Export {

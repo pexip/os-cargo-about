@@ -12,7 +12,7 @@ use crate::read::{
 use crate::xcoff;
 
 use super::{
-    CsectAux, FileAux, SectionHeader, SectionTable, Symbol, SymbolTable, XcoffComdat,
+    CsectAux, FileAux, Rel, SectionHeader, SectionTable, Symbol, SymbolTable, XcoffComdat,
     XcoffComdatIterator, XcoffSection, XcoffSectionIterator, XcoffSegment, XcoffSegmentIterator,
     XcoffSymbol, XcoffSymbolIterator, XcoffSymbolTable,
 };
@@ -72,8 +72,29 @@ where
     }
 
     /// Returns the raw XCOFF file header.
+    #[deprecated(note = "Use `xcoff_header` instead")]
     pub fn raw_header(&self) -> &'data Xcoff {
         self.header
+    }
+
+    /// Get the raw XCOFF file header.
+    pub fn xcoff_header(&self) -> &'data Xcoff {
+        self.header
+    }
+
+    /// Get the raw XCOFF auxiliary header.
+    pub fn xcoff_aux_header(&self) -> Option<&'data Xcoff::AuxHeader> {
+        self.aux_header
+    }
+
+    /// Get the XCOFF section table.
+    pub fn xcoff_section_table(&self) -> &SectionTable<'data, Xcoff> {
+        &self.sections
+    }
+
+    /// Get the XCOFF symbol table.
+    pub fn xcoff_symbol_table(&self) -> &SymbolTable<'data, Xcoff, R> {
+        &self.symbols
     }
 }
 
@@ -89,16 +110,56 @@ where
     Xcoff: FileHeader,
     R: ReadRef<'data>,
 {
-    type Segment<'file> = XcoffSegment<'data, 'file, Xcoff, R> where Self: 'file, 'data: 'file;
-    type SegmentIterator<'file> = XcoffSegmentIterator<'data, 'file, Xcoff, R> where Self: 'file, 'data: 'file;
-    type Section<'file> = XcoffSection<'data, 'file, Xcoff, R> where Self: 'file, 'data: 'file;
-    type SectionIterator<'file> = XcoffSectionIterator<'data, 'file, Xcoff, R> where Self: 'file, 'data: 'file;
-    type Comdat<'file> = XcoffComdat<'data, 'file, Xcoff, R> where Self: 'file, 'data: 'file;
-    type ComdatIterator<'file> = XcoffComdatIterator<'data, 'file, Xcoff, R> where Self: 'file, 'data: 'file;
-    type Symbol<'file> = XcoffSymbol<'data, 'file, Xcoff, R> where Self: 'file, 'data: 'file;
-    type SymbolIterator<'file> = XcoffSymbolIterator<'data, 'file, Xcoff, R> where Self: 'file, 'data: 'file;
-    type SymbolTable<'file> = XcoffSymbolTable<'data, 'file, Xcoff, R> where Self: 'file, 'data: 'file;
-    type DynamicRelocationIterator<'file> = NoDynamicRelocationIterator where Self: 'file, 'data: 'file;
+    type Segment<'file>
+        = XcoffSegment<'data, 'file, Xcoff, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SegmentIterator<'file>
+        = XcoffSegmentIterator<'data, 'file, Xcoff, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type Section<'file>
+        = XcoffSection<'data, 'file, Xcoff, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SectionIterator<'file>
+        = XcoffSectionIterator<'data, 'file, Xcoff, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type Comdat<'file>
+        = XcoffComdat<'data, 'file, Xcoff, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type ComdatIterator<'file>
+        = XcoffComdatIterator<'data, 'file, Xcoff, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type Symbol<'file>
+        = XcoffSymbol<'data, 'file, Xcoff, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SymbolIterator<'file>
+        = XcoffSymbolIterator<'data, 'file, Xcoff, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SymbolTable<'file>
+        = XcoffSymbolTable<'data, 'file, Xcoff, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type DynamicRelocationIterator<'file>
+        = NoDynamicRelocationIterator
+    where
+        Self: 'file,
+        'data: 'file;
 
     fn architecture(&self) -> Architecture {
         if self.is_64() {
@@ -172,7 +233,7 @@ where
     }
 
     fn symbol_by_index(&self, index: SymbolIndex) -> Result<XcoffSymbol<'data, '_, Xcoff, R>> {
-        let symbol = self.symbols.symbol(index.0)?;
+        let symbol = self.symbols.symbol(index)?;
         Ok(XcoffSymbol {
             symbols: &self.symbols,
             index,
@@ -245,10 +306,11 @@ where
 pub trait FileHeader: Debug + Pod {
     type Word: Into<u64>;
     type AuxHeader: AuxHeader<Word = Self::Word>;
-    type SectionHeader: SectionHeader<Word = Self::Word>;
+    type SectionHeader: SectionHeader<Word = Self::Word, Rel = Self::Rel>;
     type Symbol: Symbol<Word = Self::Word>;
     type FileAux: FileAux;
     type CsectAux: CsectAux;
+    type Rel: Rel<Word = Self::Word>;
 
     /// Return true if this type is a 64-bit header.
     fn is_type_64(&self) -> bool;
@@ -331,6 +393,7 @@ impl FileHeader for xcoff::FileHeader32 {
     type Symbol = xcoff::Symbol32;
     type FileAux = xcoff::FileAux32;
     type CsectAux = xcoff::CsectAux32;
+    type Rel = xcoff::Rel32;
 
     fn is_type_64(&self) -> bool {
         false
@@ -372,6 +435,7 @@ impl FileHeader for xcoff::FileHeader64 {
     type Symbol = xcoff::Symbol64;
     type FileAux = xcoff::FileAux64;
     type CsectAux = xcoff::CsectAux64;
+    type Rel = xcoff::Rel64;
 
     fn is_type_64(&self) -> bool {
         true

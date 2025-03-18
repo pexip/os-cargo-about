@@ -2,6 +2,239 @@
 
 --------------------------------------------------------------------------------
 
+## 0.36.7
+
+Released 2024/12/21.
+
+### Changed
+
+* Included `build.rs` in package.
+
+--------------------------------------------------------------------------------
+
+## 0.36.6
+
+Released 2024/12/21.
+
+### Added
+
+* Added `Architecuture::M68k`.
+  [#742](https://github.com/gimli-rs/object/pull/742)
+  [#749](https://github.com/gimli-rs/object/pull/749)
+
+* Added `Architecuture::Mips64_N32`.
+  [#743](https://github.com/gimli-rs/object/pull/743)
+
+* Added `elf::SHT_RELR`, `read::elf::SectionHeader::relr`, and
+  `write::elf::Writer::write_relative_relocation_section_header`.
+  [#746](https://github.com/gimli-rs/object/pull/746)
+
+* Added `core::error::Error` implementation for Rust 1.81 onwards.
+  [#747](https://github.com/gimli-rs/object/pull/747)
+
+### Changed
+
+* Changed `build::elf::Builder` to support `.annobin.notes`,
+  `SHT_LLVM_DEPENDENT_LIBRARIES`, and `SHT_RELR` sections.
+  [#735](https://github.com/gimli-rs/object/pull/735)
+  [#737](https://github.com/gimli-rs/object/pull/737)
+  [#746](https://github.com/gimli-rs/object/pull/746)
+
+* Changed `write::Object::add_subsection` to omit the subsection name suffix
+  if the subsection name is empty.
+  [#748](https://github.com/gimli-rs/object/pull/748)
+
+--------------------------------------------------------------------------------
+
+## 0.36.5
+
+Released 2024/10/04.
+
+### Added
+
+* Added `Architecture::E2K32` and `Architecture::E2K64`.
+  [#727](https://github.com/gimli-rs/object/pull/727)
+
+* Added read and write support for `pe::IMAGE_REL_ARM64_BRANCH26`.
+  [#731](https://github.com/gimli-rs/object/pull/731)
+
+### Changed
+
+* Fixed decompression of multi-frame Zstandard data in `read::CompressedData::decompress`.
+  [#730](https://github.com/gimli-rs/object/pull/730)
+
+--------------------------------------------------------------------------------
+
+## 0.36.4
+
+Released 2024/08/30.
+
+### Added
+
+* Added `pe::IMAGE_FILE_MACHINE_ARM64X` and `pe::IMAGE_FILE_MACHINE_CHPE_X86`.
+  [#717](https://github.com/gimli-rs/object/pull/717)
+
+* Added `elf::SHF_GNU_RETAIN` and `elf::SHF_GNU_MBIND`.
+  [#720](https://github.com/gimli-rs/object/pull/720)
+
+### Changed
+
+* Fixed the checksum for COFF BSS section symbols in `write::Object`.
+  [#718](https://github.com/gimli-rs/object/pull/718)
+
+* Changed `read::CompressedData::decompress` to validate the decompressed size.
+  [#723](https://github.com/gimli-rs/object/pull/723)
+
+* Updated `wasmparser` dependency.
+
+--------------------------------------------------------------------------------
+
+## 0.36.3
+
+Released 2024/08/07.
+
+### Added
+
+* Added `Iterator` implementations for various types in the low level read API.
+  [#713](https://github.com/gimli-rs/object/pull/713)
+  [#714](https://github.com/gimli-rs/object/pull/714)
+
+### Changed
+
+* Changed `from_bytes` constructors for integer endian types to `const`.
+  [#712](https://github.com/gimli-rs/object/pull/712)
+
+* Changed `next` methods in the low level read API to fuse after returning an
+  error.
+  [#714](https://github.com/gimli-rs/object/pull/714)
+
+* Updated `wasmparser` dependency.
+  [#715](https://github.com/gimli-rs/object/pull/715)
+
+--------------------------------------------------------------------------------
+
+## 0.36.2
+
+Released 2024/07/24.
+
+### Changed
+
+* Improved writing of GNU symbol versioning in `build::elf::Builder`.
+  [#705](https://github.com/gimli-rs/object/pull/705)
+
+* Fixed alignment of `SHT_HASH`/`SHT_GNU_verdef`/`SHT_GNU_verneed` sections in
+  `write::elf::Writer`.
+  [#706](https://github.com/gimli-rs/object/pull/706)
+
+* Fixed writing of GNU hash for absolute symbols in `build::elf::Builder`.
+  [#707](https://github.com/gimli-rs/object/pull/707)
+
+* Fixed writing of empty ELF string table in `write::Object`.
+  [#710](https://github.com/gimli-rs/object/pull/710)
+
+--------------------------------------------------------------------------------
+
+## 0.36.1
+
+Released 2024/06/29.
+
+### Added
+
+* Added `SectionKind::DebugString`.
+  [#694](https://github.com/gimli-rs/object/pull/694)
+
+* Added `Architecture::Sparc` and `Architecture::Sparc32Plus`.
+  [#699](https://github.com/gimli-rs/object/pull/699)
+  [#700](https://github.com/gimli-rs/object/pull/700)
+
+* Added more RISC-V ELF relocation constants.
+  [#701](https://github.com/gimli-rs/object/pull/701)
+
+### Changed
+
+* Changed `read::ElfFile::imports` to return the library for versioned symbols.
+  [#693](https://github.com/gimli-rs/object/pull/693)
+
+* Changed `read::MachOFile` to support Go's debug section compression.
+  [#697](https://github.com/gimli-rs/object/pull/697)
+
+* Reversed the order of Mach-O relocations emitted by `write::Object`.
+  [#702](https://github.com/gimli-rs/object/pull/702)
+
+--------------------------------------------------------------------------------
+
+## 0.36.0
+
+Released 2024/05/26.
+
+### Breaking changes
+
+* Deleted `data` and `align` parameters for `write::Object::add_subsection`.
+  Use `add_symbol_data` or `add_symbol_bss` instead.
+  [#676](https://github.com/gimli-rs/object/pull/676)
+
+* Changed methods in the lower level read API to accept or return `SectionIndex`
+  or `SymbolIndex` instead of `usize`.
+  [#677](https://github.com/gimli-rs/object/pull/677)
+  [#684](https://github.com/gimli-rs/object/pull/684)
+  [#685](https://github.com/gimli-rs/object/pull/685)
+
+* Deleted `SymbolKind::Null`. Changed `read::Object::sections` and `read::Object::symbols`
+  to no longer return null entries. This affects ELF and XCOFF.
+  [#679](https://github.com/gimli-rs/object/pull/679)
+
+* Changed `read::ObjectMap::object` to return `ObjectMapFile`. This handles
+  splitting the object file name into path and member.
+  [#686](https://github.com/gimli-rs/object/pull/686)
+
+* Changed `read::coff::ImageSymbol::address` to only return an address for
+  symbols that have an address.
+  [#689](https://github.com/gimli-rs/object/pull/689)
+
+### Added
+
+* Added `pod::slice_from_all_bytes` and `pod::slice_from_all_bytes_mut`.
+  [#672](https://github.com/gimli-rs/object/pull/672)
+
+* Added `write::Object::set_subsections_via_symbols`.
+  Changed `write::Object::add_symbol_data` and `write::Object::add_symbol_bss`
+  to correctly handle zero size symbols when subsections are enabled.
+  [#676](https://github.com/gimli-rs/object/pull/676)
+
+* Added methods in the unified read API to return the lower level API structures.
+  Some existing methods were deprecated so that naming of these methods is more consistent.
+  [#678](https://github.com/gimli-rs/object/pull/678)
+
+* Added methods in the lower level read API to return a `SectionIndex` or `SymbolIndex`.
+  [#684](https://github.com/gimli-rs/object/pull/684)
+  [#689](https://github.com/gimli-rs/object/pull/689)
+
+* Implemented `Display` for `read::SymbolIndex` and `read::SectionIndex`.
+  [#684](https://github.com/gimli-rs/object/pull/684)
+
+* Added `is_common`, `is_absolute`, `is_local`, and `is_weak` to `read::elf::Sym`.
+  [#685](https://github.com/gimli-rs/object/pull/685)
+
+### Changed
+
+* Changed `read::ArchiveFile` to skip the `<ECSYMBOLS>` member.
+  [#669](https://github.com/gimli-rs/object/pull/669)
+
+* Fixed handling of segment data in the dyld shared cache.
+  [#673](https://github.com/gimli-rs/object/pull/673)
+
+* Changed `read::RelocationMap` to handle Mach-O section relocations.
+  [#675](https://github.com/gimli-rs/object/pull/675)
+
+* Changed `read::elf::RelocationSections` to ignore relocations that apply to relocations.
+  [#680](https://github.com/gimli-rs/object/pull/680)
+
+* Removed a lifetime bound from an argument in `read::elf::SectionTable::section_name`,
+  `read::elf::SymbolTable::symbol_name`, and `read::elf::SymbolTable::symbol_section`.
+  [#681](https://github.com/gimli-rs/object/pull/681)
+
+--------------------------------------------------------------------------------
+
 ## 0.35.0
 
 Released 2024/04/10.

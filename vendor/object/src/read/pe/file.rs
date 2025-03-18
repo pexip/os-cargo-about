@@ -6,7 +6,7 @@ use core::convert::TryInto;
 
 use crate::endian::{LittleEndian as LE, U32};
 use crate::pe;
-use crate::pod::Pod;
+use crate::pod::{self, Pod};
 use crate::read::coff::{CoffCommon, CoffSymbol, CoffSymbolIterator, CoffSymbolTable, SymbolTable};
 use crate::read::{
     self, Architecture, ByteString, Bytes, CodeView, ComdatKind, Error, Export, FileFlags, Import,
@@ -143,16 +143,56 @@ where
     Pe: ImageNtHeaders,
     R: ReadRef<'data>,
 {
-    type Segment<'file> = PeSegment<'data, 'file, Pe, R> where Self: 'file, 'data: 'file;
-    type SegmentIterator<'file> = PeSegmentIterator<'data, 'file, Pe, R> where Self: 'file, 'data: 'file;
-    type Section<'file> = PeSection<'data, 'file, Pe, R> where Self: 'file, 'data: 'file;
-    type SectionIterator<'file> = PeSectionIterator<'data, 'file, Pe, R> where Self: 'file, 'data: 'file;
-    type Comdat<'file> = PeComdat<'data, 'file, Pe, R> where Self: 'file, 'data: 'file;
-    type ComdatIterator<'file> = PeComdatIterator<'data, 'file, Pe, R> where Self: 'file, 'data: 'file;
-    type Symbol<'file> = CoffSymbol<'data, 'file, R> where Self: 'file, 'data: 'file;
-    type SymbolIterator<'file> = CoffSymbolIterator<'data, 'file, R> where Self: 'file, 'data: 'file;
-    type SymbolTable<'file> = CoffSymbolTable<'data, 'file, R> where Self: 'file, 'data: 'file;
-    type DynamicRelocationIterator<'file> = NoDynamicRelocationIterator where Self: 'file, 'data: 'file;
+    type Segment<'file>
+        = PeSegment<'data, 'file, Pe, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SegmentIterator<'file>
+        = PeSegmentIterator<'data, 'file, Pe, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type Section<'file>
+        = PeSection<'data, 'file, Pe, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SectionIterator<'file>
+        = PeSectionIterator<'data, 'file, Pe, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type Comdat<'file>
+        = PeComdat<'data, 'file, Pe, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type ComdatIterator<'file>
+        = PeComdatIterator<'data, 'file, Pe, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type Symbol<'file>
+        = CoffSymbol<'data, 'file, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SymbolIterator<'file>
+        = CoffSymbolIterator<'data, 'file, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type SymbolTable<'file>
+        = CoffSymbolTable<'data, 'file, R>
+    where
+        Self: 'file,
+        'data: 'file;
+    type DynamicRelocationIterator<'file>
+        = NoDynamicRelocationIterator
+    where
+        Self: 'file,
+        'data: 'file;
 
     fn architecture(&self) -> Architecture {
         match self.nt_headers.file_header().machine.get(LE) {
@@ -209,13 +249,13 @@ where
             .section_by_name(self.common.symbols.strings(), section_name)
             .map(|(index, section)| PeSection {
                 file: self,
-                index: SectionIndex(index),
+                index,
                 section,
             })
     }
 
     fn section_by_index(&self, index: SectionIndex) -> Result<PeSection<'data, '_, Pe, R>> {
-        let section = self.common.sections.section(index.0)?;
+        let section = self.common.sections.section(index)?;
         Ok(PeSection {
             file: self,
             index,
@@ -235,7 +275,7 @@ where
     }
 
     fn symbol_by_index(&self, index: SymbolIndex) -> Result<CoffSymbol<'data, '_, R>> {
-        let symbol = self.common.symbols.symbol(index.0)?;
+        let symbol = self.common.symbols.symbol(index)?;
         Ok(CoffSymbol {
             file: &self.common,
             index,
@@ -244,10 +284,7 @@ where
     }
 
     fn symbols(&self) -> CoffSymbolIterator<'data, '_, R> {
-        CoffSymbolIterator {
-            file: &self.common,
-            index: 0,
-        }
+        CoffSymbolIterator::new(&self.common)
     }
 
     fn symbol_table(&self) -> Option<CoffSymbolTable<'data, '_, R>> {
@@ -255,11 +292,7 @@ where
     }
 
     fn dynamic_symbols(&self) -> CoffSymbolIterator<'data, '_, R> {
-        CoffSymbolIterator {
-            file: &self.common,
-            // Hack: don't return any.
-            index: self.common.symbols.len(),
-        }
+        CoffSymbolIterator::empty(&self.common)
     }
 
     fn dynamic_symbol_table(&self) -> Option<CoffSymbolTable<'data, '_, R>> {
@@ -317,17 +350,8 @@ where
             Some(data_dir) => data_dir,
             None => return Ok(None),
         };
-        let debug_data = data_dir.data(self.data, &self.common.sections).map(Bytes)?;
-        let debug_data_size = data_dir.size.get(LE) as usize;
-
-        let count = debug_data_size / mem::size_of::<pe::ImageDebugDirectory>();
-        let rem = debug_data_size % mem::size_of::<pe::ImageDebugDirectory>();
-        if rem != 0 || count < 1 {
-            return Err(Error("Invalid PE debug dir size"));
-        }
-
-        let debug_dirs = debug_data
-            .read_slice_at::<pe::ImageDebugDirectory>(0, count)
+        let debug_data = data_dir.data(self.data, &self.common.sections)?;
+        let debug_dirs = pod::slice_from_all_bytes::<pe::ImageDebugDirectory>(debug_data)
             .read_error("Invalid PE debug dir size")?;
 
         for debug_dir in debug_dirs {

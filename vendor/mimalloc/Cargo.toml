@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "mimalloc"
-version = "0.1.42"
+version = "0.1.43"
 authors = [
     "Octavian Oncescu <octavonce@gmail.com>",
     "Vincent Rouillé <vincent@speedy37.fr>",
@@ -34,7 +34,7 @@ license = "MIT"
 repository = "https://github.com/purpleprotocol/mimalloc_rust"
 
 [dependencies.libmimalloc-sys]
-version = "0.1.38"
+version = "0.1.39"
 default-features = false
 
 [features]

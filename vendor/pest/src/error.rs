@@ -671,6 +671,12 @@ impl<R: RuleType> Error<R> {
             )
         }
     }
+
+    #[cfg(feature = "miette-error")]
+    /// Turns an error into a [miette](crates.io/miette) Diagnostic.
+    pub fn into_miette(self) -> impl ::miette::Diagnostic {
+        miette_adapter::MietteAdapter(self)
+    }
 }
 
 impl<R: RuleType> ErrorVariant<R> {
@@ -728,16 +734,56 @@ fn visualize_whitespace(input: &str) -> String {
     input.to_owned().replace('\r', "␍").replace('\n', "␊")
 }
 
+#[cfg(feature = "miette-error")]
+mod miette_adapter {
+    use alloc::string::ToString;
+    use std::boxed::Box;
+
+    use crate::error::LineColLocation;
+
+    use super::{Error, RuleType};
+
+    use miette::{Diagnostic, LabeledSpan, SourceCode};
+
+    #[derive(thiserror::Error, Debug)]
+    #[error("Failure to parse at {:?}", self.0.line_col)]
+    pub(crate) struct MietteAdapter<R: RuleType>(pub(crate) Error<R>);
+
+    impl<R: RuleType> Diagnostic for MietteAdapter<R> {
+        fn source_code(&self) -> Option<&dyn SourceCode> {
+            Some(&self.0.line)
+        }
+
+        fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan>>> {
+            let message = self.0.variant.message().to_string();
+
+            let (offset, length) = match self.0.line_col {
+                LineColLocation::Pos((_, c)) => (c - 1, 1),
+                LineColLocation::Span((_, start_c), (_, end_c)) => {
+                    (start_c - 1, end_c - start_c + 1)
+                }
+            };
+
+            let span = LabeledSpan::new(Some(message), offset, length);
+
+            Some(Box::new(std::iter::once(span)))
+        }
+
+        fn help<'a>(&'a self) -> Option<Box<dyn core::fmt::Display + 'a>> {
+            Some(Box::new(self.0.message()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::super::position;
     use super::*;
     use alloc::vec;
 
     #[test]
     fn display_parsing_error_mixed() {
         let input = "ab\ncd\nef";
-        let pos = position::Position::new(input, 4).unwrap();
+        let pos = Position::new(input, 4).unwrap();
         let error: Error<u32> = Error::new_from_pos(
             ErrorVariant::ParsingError {
                 positives: vec![1, 2, 3],
@@ -763,7 +809,7 @@ mod tests {
     #[test]
     fn display_parsing_error_positives() {
         let input = "ab\ncd\nef";
-        let pos = position::Position::new(input, 4).unwrap();
+        let pos = Position::new(input, 4).unwrap();
         let error: Error<u32> = Error::new_from_pos(
             ErrorVariant::ParsingError {
                 positives: vec![1, 2],
@@ -789,7 +835,7 @@ mod tests {
     #[test]
     fn display_parsing_error_negatives() {
         let input = "ab\ncd\nef";
-        let pos = position::Position::new(input, 4).unwrap();
+        let pos = Position::new(input, 4).unwrap();
         let error: Error<u32> = Error::new_from_pos(
             ErrorVariant::ParsingError {
                 positives: vec![],
@@ -815,7 +861,7 @@ mod tests {
     #[test]
     fn display_parsing_error_unknown() {
         let input = "ab\ncd\nef";
-        let pos = position::Position::new(input, 4).unwrap();
+        let pos = Position::new(input, 4).unwrap();
         let error: Error<u32> = Error::new_from_pos(
             ErrorVariant::ParsingError {
                 positives: vec![],
@@ -841,7 +887,7 @@ mod tests {
     #[test]
     fn display_custom_pos() {
         let input = "ab\ncd\nef";
-        let pos = position::Position::new(input, 4).unwrap();
+        let pos = Position::new(input, 4).unwrap();
         let error: Error<u32> = Error::new_from_pos(
             ErrorVariant::CustomError {
                 message: "error: big one".to_owned(),
@@ -866,8 +912,8 @@ mod tests {
     #[test]
     fn display_custom_span_two_lines() {
         let input = "ab\ncd\nefgh";
-        let start = position::Position::new(input, 4).unwrap();
-        let end = position::Position::new(input, 9).unwrap();
+        let start = Position::new(input, 4).unwrap();
+        let end = Position::new(input, 9).unwrap();
         let error: Error<u32> = Error::new_from_span(
             ErrorVariant::CustomError {
                 message: "error: big one".to_owned(),
@@ -893,8 +939,8 @@ mod tests {
     #[test]
     fn display_custom_span_three_lines() {
         let input = "ab\ncd\nefgh";
-        let start = position::Position::new(input, 1).unwrap();
-        let end = position::Position::new(input, 9).unwrap();
+        let start = Position::new(input, 1).unwrap();
+        let end = Position::new(input, 9).unwrap();
         let error: Error<u32> = Error::new_from_span(
             ErrorVariant::CustomError {
                 message: "error: big one".to_owned(),
@@ -921,8 +967,8 @@ mod tests {
     #[test]
     fn display_custom_span_two_lines_inverted_cols() {
         let input = "abcdef\ngh";
-        let start = position::Position::new(input, 5).unwrap();
-        let end = position::Position::new(input, 8).unwrap();
+        let start = Position::new(input, 5).unwrap();
+        let end = Position::new(input, 8).unwrap();
         let error: Error<u32> = Error::new_from_span(
             ErrorVariant::CustomError {
                 message: "error: big one".to_owned(),
@@ -948,8 +994,8 @@ mod tests {
     #[test]
     fn display_custom_span_end_after_newline() {
         let input = "abcdef\n";
-        let start = position::Position::new(input, 0).unwrap();
-        let end = position::Position::new(input, 7).unwrap();
+        let start = Position::new(input, 0).unwrap();
+        let end = Position::new(input, 7).unwrap();
         assert!(start.at_start());
         assert!(end.at_end());
 
@@ -977,8 +1023,8 @@ mod tests {
     #[test]
     fn display_custom_span_empty() {
         let input = "";
-        let start = position::Position::new(input, 0).unwrap();
-        let end = position::Position::new(input, 0).unwrap();
+        let start = Position::new(input, 0).unwrap();
+        let end = Position::new(input, 0).unwrap();
         assert!(start.at_start());
         assert!(end.at_end());
 
@@ -1006,7 +1052,7 @@ mod tests {
     #[test]
     fn mapped_parsing_error() {
         let input = "ab\ncd\nef";
-        let pos = position::Position::new(input, 4).unwrap();
+        let pos = Position::new(input, 4).unwrap();
         let error: Error<u32> = Error::new_from_pos(
             ErrorVariant::ParsingError {
                 positives: vec![1, 2, 3],
@@ -1033,7 +1079,7 @@ mod tests {
     #[test]
     fn error_with_path() {
         let input = "ab\ncd\nef";
-        let pos = position::Position::new(input, 4).unwrap();
+        let pos = Position::new(input, 4).unwrap();
         let error: Error<u32> = Error::new_from_pos(
             ErrorVariant::ParsingError {
                 positives: vec![1, 2, 3],
@@ -1060,7 +1106,7 @@ mod tests {
     #[test]
     fn underline_with_tabs() {
         let input = "a\txbc";
-        let pos = position::Position::new(input, 2).unwrap();
+        let pos = Position::new(input, 2).unwrap();
         let error: Error<u32> = Error::new_from_pos(
             ErrorVariant::ParsingError {
                 positives: vec![1, 2, 3],
@@ -1103,6 +1149,37 @@ mod tests {
         assert_eq!(
             LineColLocation::Span(start.line_col(), end.line_col()),
             span.into()
+        );
+    }
+
+    #[cfg(feature = "miette-error")]
+    #[test]
+    fn miette_error() {
+        let input = "abc\ndef";
+        let pos = Position::new(input, 4).unwrap();
+        let error: Error<u32> = Error::new_from_pos(
+            ErrorVariant::ParsingError {
+                positives: vec![1, 2, 3],
+                negatives: vec![4, 5, 6],
+            },
+            pos,
+        );
+
+        let miette_error = miette::Error::new(error.into_miette());
+
+        assert_eq!(
+            format!("{:?}", miette_error),
+            [
+                "",
+                "  \u{1b}[31m×\u{1b}[0m Failure to parse at Pos((2, 1))",
+                "   ╭────",
+                " \u{1b}[2m1\u{1b}[0m │ def",
+                "   · \u{1b}[35;1m┬\u{1b}[0m",
+                "   · \u{1b}[35;1m╰── \u{1b}[35;1munexpected 4, 5, or 6; expected 1, 2, or 3\u{1b}[0m\u{1b}[0m",
+                "   ╰────",
+                "\u{1b}[36m  help: \u{1b}[0munexpected 4, 5, or 6; expected 1, 2, or 3\n"
+            ]
+            .join("\n")
         );
     }
 }

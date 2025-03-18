@@ -1,10 +1,10 @@
 use core::fmt::Debug;
-use core::{mem, slice, str};
+use core::{slice, str};
 
 use crate::elf;
 use crate::endian::{self, Endianness};
-use crate::pod::Pod;
-use crate::read::{self, Bytes, ObjectSegment, ReadError, ReadRef, SegmentFlags};
+use crate::pod::{self, Pod};
+use crate::read::{self, ObjectSegment, ReadError, ReadRef, SegmentFlags};
 
 use super::{ElfFile, FileHeader, NoteIterator};
 
@@ -67,6 +67,16 @@ where
 }
 
 impl<'data, 'file, Elf: FileHeader, R: ReadRef<'data>> ElfSegment<'data, 'file, Elf, R> {
+    /// Get the ELF file containing this segment.
+    pub fn elf_file(&self) -> &'file ElfFile<'data, Elf, R> {
+        self.file
+    }
+
+    /// Get the raw ELF program header for the segment.
+    pub fn elf_program_header(&self) -> &'data Elf::ProgramHeader {
+        self.segment
+    }
+
     fn bytes(&self) -> read::Result<&'data [u8]> {
         self.segment
             .data(self.file.endian, self.file.data)
@@ -180,8 +190,7 @@ pub trait ProgramHeader: Debug + Pod {
         endian: Self::Endian,
         data: R,
     ) -> Result<&'data [T], ()> {
-        let mut data = self.data(endian, data).map(Bytes)?;
-        data.read_slice(data.len() / mem::size_of::<T>())
+        pod::slice_from_all_bytes(self.data(endian, data)?)
     }
 
     /// Return the segment data in the given virtual address range

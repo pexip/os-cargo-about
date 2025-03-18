@@ -12,11 +12,17 @@
 [package]
 edition = "2021"
 name = "cd"
-version = "0.3.0"
+version = "0.3.1"
 authors = [
     "Embark <opensource@embark-studios.com>",
     "Jake Shadle <jake.shadle@embark-studios.com>",
 ]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "API interaction for clearlydefined.io"
 homepage = "https://github.com/EmbarkStudios/clearly-defined"
 documentation = "https://docs.rs/cd"
@@ -29,9 +35,25 @@ categories = ["api-bindings"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/EmbarkStudios/clearly-defined"
 
+[features]
+blocking = [
+    "client",
+    "reqwest/blocking",
+]
+client = ["reqwest"]
+
+[lib]
+name = "cd"
+path = "src/lib.rs"
+
 [[example]]
 name = "cli"
+path = "examples/cli.rs"
 required-features = ["blocking"]
+
+[[test]]
+name = "definitions"
+path = "tests/definitions.rs"
 
 [dependencies.anyhow]
 version = "1.0"
@@ -63,17 +85,10 @@ features = ["derive"]
 version = "1.0"
 
 [dependencies.thiserror]
-version = "1.0"
+version = "2.0"
 
 [dependencies.url]
-version = "2.1"
+version = "2.5"
 
 [dev-dependencies.nu-ansi-term]
 version = "0.50"
-
-[features]
-blocking = [
-    "client",
-    "reqwest/blocking",
-]
-client = ["reqwest"]

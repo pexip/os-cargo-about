@@ -66,16 +66,6 @@ impl<'a> Object<'a> {
 
 // Private methods.
 impl<'a> Object<'a> {
-    pub(crate) fn macho_set_subsections_via_symbols(&mut self) {
-        let flags = match self.flags {
-            FileFlags::MachO { flags } => flags,
-            _ => 0,
-        };
-        self.flags = FileFlags::MachO {
-            flags: flags | macho::MH_SUBSECTIONS_VIA_SYMBOLS,
-        };
-    }
-
     pub(crate) fn macho_segment_name(&self, segment: StandardSegment) -> &'static [u8] {
         match segment {
             StandardSegment::Text => &b"__TEXT"[..],
@@ -255,6 +245,9 @@ impl<'a> Object<'a> {
     }
 
     pub(crate) fn macho_translate_relocation(&mut self, reloc: &mut Relocation) -> Result<()> {
+        use RelocationEncoding as E;
+        use RelocationKind as K;
+
         let (kind, encoding, mut size) = if let RelocationFlags::Generic {
             kind,
             encoding,
@@ -276,52 +269,32 @@ impl<'a> Object<'a> {
             64 => 3,
             _ => return Err(Error(format!("unimplemented reloc size {:?}", reloc))),
         };
+        let unsupported_reloc = || Err(Error(format!("unimplemented relocation {:?}", reloc)));
         let (r_pcrel, r_type) = match self.architecture {
             Architecture::I386 => match kind {
-                RelocationKind::Absolute => (false, macho::GENERIC_RELOC_VANILLA),
-                _ => {
-                    return Err(Error(format!("unimplemented relocation {:?}", reloc)));
-                }
+                K::Absolute => (false, macho::GENERIC_RELOC_VANILLA),
+                _ => return unsupported_reloc(),
             },
             Architecture::X86_64 => match (kind, encoding) {
-                (RelocationKind::Absolute, RelocationEncoding::Generic) => {
-                    (false, macho::X86_64_RELOC_UNSIGNED)
-                }
-                (RelocationKind::Relative, RelocationEncoding::Generic) => {
-                    (true, macho::X86_64_RELOC_SIGNED)
-                }
-                (RelocationKind::Relative, RelocationEncoding::X86RipRelative) => {
-                    (true, macho::X86_64_RELOC_SIGNED)
-                }
-                (RelocationKind::Relative, RelocationEncoding::X86Branch) => {
-                    (true, macho::X86_64_RELOC_BRANCH)
-                }
-                (RelocationKind::PltRelative, RelocationEncoding::X86Branch) => {
-                    (true, macho::X86_64_RELOC_BRANCH)
-                }
-                (RelocationKind::GotRelative, RelocationEncoding::Generic) => {
-                    (true, macho::X86_64_RELOC_GOT)
-                }
-                (RelocationKind::GotRelative, RelocationEncoding::X86RipRelativeMovq) => {
-                    (true, macho::X86_64_RELOC_GOT_LOAD)
-                }
-                _ => {
-                    return Err(Error(format!("unimplemented relocation {:?}", reloc)));
-                }
+                (K::Absolute, E::Generic) => (false, macho::X86_64_RELOC_UNSIGNED),
+                (K::Relative, E::Generic) => (true, macho::X86_64_RELOC_SIGNED),
+                (K::Relative, E::X86RipRelative) => (true, macho::X86_64_RELOC_SIGNED),
+                (K::Relative, E::X86Branch) => (true, macho::X86_64_RELOC_BRANCH),
+                (K::PltRelative, E::X86Branch) => (true, macho::X86_64_RELOC_BRANCH),
+                (K::GotRelative, E::Generic) => (true, macho::X86_64_RELOC_GOT),
+                (K::GotRelative, E::X86RipRelativeMovq) => (true, macho::X86_64_RELOC_GOT_LOAD),
+                _ => return unsupported_reloc(),
             },
             Architecture::Aarch64 | Architecture::Aarch64_Ilp32 => match (kind, encoding) {
-                (RelocationKind::Absolute, RelocationEncoding::Generic) => {
-                    (false, macho::ARM64_RELOC_UNSIGNED)
-                }
-                (RelocationKind::Relative, RelocationEncoding::AArch64Call) => {
-                    (true, macho::ARM64_RELOC_BRANCH26)
-                }
-                _ => {
-                    return Err(Error(format!("unimplemented relocation {:?}", reloc)));
-                }
+                (K::Absolute, E::Generic) => (false, macho::ARM64_RELOC_UNSIGNED),
+                (K::Relative, E::AArch64Call) => (true, macho::ARM64_RELOC_BRANCH26),
+                _ => return unsupported_reloc(),
             },
             _ => {
-                return Err(Error(format!("unimplemented relocation {:?}", reloc)));
+                return Err(Error(format!(
+                    "unimplemented architecture {:?}",
+                    self.architecture
+                )));
             }
         };
         reloc.flags = RelocationFlags::MachO {
@@ -470,7 +443,7 @@ impl<'a> Object<'a> {
             match symbol.kind {
                 SymbolKind::Text | SymbolKind::Data | SymbolKind::Tls | SymbolKind::Unknown => {}
                 SymbolKind::File | SymbolKind::Section => continue,
-                SymbolKind::Null | SymbolKind::Label => {
+                SymbolKind::Label => {
                     return Err(Error(format!(
                         "unimplemented symbol `{}` kind {:?}",
                         symbol.name().unwrap_or(""),
@@ -570,10 +543,13 @@ impl<'a> Object<'a> {
             cpusubtype = cpu_subtype;
         }
 
-        let flags = match self.flags {
+        let mut flags = match self.flags {
             FileFlags::MachO { flags } => flags,
             _ => 0,
         };
+        if self.macho_subsections_via_symbols {
+            flags |= macho::MH_SUBSECTIONS_VIA_SYMBOLS;
+        }
         macho.write_mach_header(
             buffer,
             MachHeader {
@@ -640,7 +616,7 @@ impl<'a> Object<'a> {
                     SectionKind::Tls => macho::S_THREAD_LOCAL_REGULAR,
                     SectionKind::UninitializedTls => macho::S_THREAD_LOCAL_ZEROFILL,
                     SectionKind::TlsVariables => macho::S_THREAD_LOCAL_VARIABLES,
-                    SectionKind::Debug => macho::S_ATTR_DEBUG,
+                    SectionKind::Debug | SectionKind::DebugString => macho::S_ATTR_DEBUG,
                     SectionKind::OtherString => macho::S_CSTRING_LITERALS,
                     SectionKind::Other | SectionKind::Linker | SectionKind::Metadata => 0,
                     SectionKind::Note | SectionKind::Unknown | SectionKind::Elf(_) => {
@@ -736,7 +712,8 @@ impl<'a> Object<'a> {
             if !section.relocations.is_empty() {
                 write_align(buffer, pointer_align);
                 debug_assert_eq!(section_offsets[index].reloc_offset, buffer.len());
-                for reloc in &section.relocations {
+
+                let mut write_reloc = |reloc: &Relocation| {
                     let (r_type, r_pcrel, r_length) = if let RelocationFlags::MachO {
                         r_type,
                         r_pcrel,
@@ -790,6 +767,29 @@ impl<'a> Object<'a> {
                         r_type,
                     };
                     buffer.write(&reloc_info.relocation(endian));
+                    Ok(())
+                };
+
+                // Relocations are emitted in descending order as otherwise Apple's
+                // new linker crashes. This matches LLVM's behavior too:
+                // https://github.com/llvm/llvm-project/blob/e9b8cd0c8/llvm/lib/MC/MachObjectWriter.cpp#L1001-L1002
+                let need_reverse = |relocs: &[Relocation]| {
+                    let Some(first) = relocs.first() else {
+                        return false;
+                    };
+                    let Some(last) = relocs.last() else {
+                        return false;
+                    };
+                    first.offset < last.offset
+                };
+                if need_reverse(&section.relocations) {
+                    for reloc in section.relocations.iter().rev() {
+                        write_reloc(reloc)?;
+                    }
+                } else {
+                    for reloc in &section.relocations {
+                        write_reloc(reloc)?;
+                    }
                 }
             }
         }

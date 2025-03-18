@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.3.1] - 2025-02-25
+### Changed
+- [PR#6](https://github.com/EmbarkStudios/clearly-defined/pull/6) updated crates.
+
 ## [0.3.0] - 2024-05-31
 ### Changed
 - [PR#5](https://github.com/EmbarkStudios/clearly-defined/pull/5) updated http and reqwest dependencies, and got rid of the `native-tls` and `rustls` features in favor of always using `rustls-tls`.
@@ -26,7 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial add. This does absolutely nothing I just want to squat the name on crates.io
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-about/compare/0.3.0...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-about/compare/0.3.1...HEAD
+[0.3.1]: https://github.com/EmbarkStudios/cargo-about/compare/0.3.0...0.3.1
 [0.3.0]: https://github.com/EmbarkStudios/cargo-about/compare/0.2.1...0.3.0
 [0.2.1]: https://github.com/EmbarkStudios/cargo-about/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/EmbarkStudios/clearly-defined/compare/0.1.0...0.2.0

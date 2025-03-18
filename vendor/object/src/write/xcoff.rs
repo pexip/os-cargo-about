@@ -194,7 +194,6 @@ impl<'a> Object<'a> {
                 n_sclass
             } else {
                 match symbol.kind {
-                    SymbolKind::Null => xcoff::C_NULL,
                     SymbolKind::File => xcoff::C_FILE,
                     SymbolKind::Text | SymbolKind::Data | SymbolKind::Tls => {
                         if symbol.is_local() {
@@ -314,7 +313,7 @@ impl<'a> Object<'a> {
                     SectionKind::Tls => xcoff::STYP_TDATA,
                     SectionKind::UninitializedTls => xcoff::STYP_TBSS,
                     SectionKind::OtherString => xcoff::STYP_INFO,
-                    SectionKind::Debug => xcoff::STYP_DEBUG,
+                    SectionKind::Debug | SectionKind::DebugString => xcoff::STYP_DEBUG,
                     SectionKind::Other | SectionKind::Metadata => 0,
                     SectionKind::Note
                     | SectionKind::Linker

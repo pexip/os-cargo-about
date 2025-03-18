@@ -13,6 +13,8 @@ fn coff_x86_64_bss() {
 
     let section = object.section_id(write::StandardSection::UninitializedData);
 
+    let _bss_section_symbol = object.section_symbol(section);
+
     let symbol = object.add_symbol(write::Symbol {
         name: b"v1".to_vec(),
         value: 0,
@@ -59,6 +61,16 @@ fn coff_x86_64_bss() {
     assert!(section.is_none(), "unexpected section {:?}", section);
 
     let mut symbols = object.symbols();
+
+    let section_symbol = symbols.next().unwrap();
+    println!("{:?}", section_symbol);
+    assert_eq!(section_symbol.name(), Ok(".bss"));
+    assert_eq!(section_symbol.kind(), SymbolKind::Section);
+    assert_eq!(section_symbol.section_index(), Some(bss_index));
+    assert_eq!(section_symbol.scope(), SymbolScope::Compilation);
+    assert!(!section_symbol.is_weak());
+    assert!(!section_symbol.is_undefined());
+    assert_eq!(section_symbol.address(), 0);
 
     let symbol = symbols.next().unwrap();
     println!("{:?}", symbol);
@@ -125,13 +137,6 @@ fn elf_x86_64_bss() {
 
     let mut sections = object.sections();
 
-    let section = sections.next().unwrap();
-    println!("{:?}", section);
-    assert_eq!(section.name(), Ok(""));
-    assert_eq!(section.kind(), SectionKind::Metadata);
-    assert_eq!(section.address(), 0);
-    assert_eq!(section.size(), 0);
-
     let bss = sections.next().unwrap();
     println!("{:?}", bss);
     let bss_index = bss.index();
@@ -141,10 +146,6 @@ fn elf_x86_64_bss() {
     assert_eq!(bss.data(), Ok(&[][..]));
 
     let mut symbols = object.symbols();
-
-    let symbol = symbols.next().unwrap();
-    println!("{:?}", symbol);
-    assert_eq!(symbol.name(), Ok(""));
 
     let symbol = symbols.next().unwrap();
     println!("{:?}", symbol);

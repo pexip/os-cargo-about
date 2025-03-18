@@ -407,7 +407,7 @@ pub struct ParserState<'i, R: RuleType> {
     position: Position<'i>,
     /// Queue representing rules partially (`QueueableToken::Start`) and
     /// totally (`QueueableToken::End`) parsed. When entering rule we put it in the queue in a state
-    /// of `Start` and after all it's sublogic (subrules or strings) are parsed, we change it to
+    /// of `Start` and after all its sublogic (subrules or strings) are parsed, we change it to
     /// `End` state.
     queue: Vec<QueueableToken<'i, R>>,
     /// Status set in case specific lookahead logic is used in grammar.
@@ -438,6 +438,7 @@ pub struct ParserState<'i, R: RuleType> {
     /// * CreateUser  = { "create" ~ "user"  ~ Name }
     /// * CreateTable = { "create" ~ "table" ~ Name }
     /// * Name = { SOME_DEFINITION }
+    ///
     /// While parsing the query we'll update tracker position to the start of "Bobby", because we'd
     /// successfully parse "create" + "user" (and not "table").
     parse_attempts: ParseAttempts<R>,
@@ -1358,7 +1359,7 @@ impl<'i, R: RuleType> ParserState<'i, R> {
         F: FnOnce(Box<Self>) -> ParseResult<Box<Self>>,
     {
         self = self.inc_call_check_limit()?;
-        // In case child parsing call is another `atomic` it will have it's own atomicity status.
+        // In case child parsing call is another `atomic` it will have its own atomicity status.
         let initial_atomicity = self.atomicity;
         // In case child atomicity is the same as we've demanded, we shouldn't do nothing.
         // E.g. we have the following rules:

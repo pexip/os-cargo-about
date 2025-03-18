@@ -546,7 +546,7 @@ pub const mi_option_max_warnings: mi_option_t = 20;
 pub const mi_option_max_segment_reclaim: mi_option_t = 21;
 
 /// Last option.
-pub const _mi_option_last: mi_option_t = 28;
+pub const _mi_option_last: mi_option_t = 29;
 
 extern "C" {
     // Note: mi_option_{enable,disable} aren't exposed because they're redundant
@@ -1012,6 +1012,16 @@ extern "C" {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn it_calculates_usable_size() {
+        let ptr = unsafe { mi_malloc(32) } as *mut u8;
+        let usable_size = unsafe { mi_usable_size(ptr as *mut c_void) };
+        assert!(
+            usable_size >= 32,
+            "usable_size should at least equal to the allocated size"
+        );
+    }
 
     #[test]
     fn runtime_stable_option() {

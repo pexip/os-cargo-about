@@ -13,8 +13,8 @@ fn symtab_shndx() {
 
     for i in 0..0x10000 {
         let name = format!("func{}", i).into_bytes();
-        let (section, offset) =
-            object.add_subsection(write::StandardSection::Text, &name, &[0xcc], 1);
+        let section = object.add_subsection(write::StandardSection::Text, &name);
+        let offset = object.append_section_data(section, &[0xcc], 1);
         object.add_symbol(write::Symbol {
             name,
             value: offset,
@@ -34,12 +34,26 @@ fn symtab_shndx() {
     assert_eq!(object.format(), BinaryFormat::Elf);
     assert_eq!(object.architecture(), Architecture::X86_64);
 
-    for symbol in object.symbols().skip(1) {
+    for symbol in object.symbols() {
         assert_eq!(
             symbol.section(),
             SymbolSection::Section(SectionIndex(symbol.index().0))
         );
     }
+}
+
+#[test]
+fn empty_symtab() {
+    let object = write::Object::new(BinaryFormat::Elf, Architecture::X86_64, Endianness::Little);
+    let bytes = object.write().unwrap();
+
+    let object = read::File::parse(&*bytes).unwrap();
+    assert_eq!(object.format(), BinaryFormat::Elf);
+    assert_eq!(object.architecture(), Architecture::X86_64);
+    let symtab = object.section_by_name(".symtab").unwrap();
+    assert_eq!(symtab.size(), 24);
+    let strtab = object.section_by_name(".strtab").unwrap();
+    assert_eq!(strtab.size(), 1);
 }
 
 #[test]
@@ -62,7 +76,6 @@ fn aligned_sections() {
     assert_eq!(object.architecture(), Architecture::X86_64);
 
     let mut sections = object.sections();
-    let _ = sections.next().unwrap();
 
     let section = sections.next().unwrap();
     assert_eq!(section.name(), Ok(".text"));

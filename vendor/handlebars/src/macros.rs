@@ -4,38 +4,34 @@
 /// There are several types of arguments available to closure:
 ///
 /// * Parameters are mapped to closure arguments one by one. Any declared
-/// parameters are required
+///   parameters are required
 /// * Hash are mapped as named arguments and declared in a bracket block.
-/// All named arguments are optional so default value is required.
+///   All named arguments are optional so default value is required.
 /// * An optional `*args` provides a vector of all helper parameters.
 /// * An optional `**kwargs` provides a map of all helper hash.
 ///
 /// # Examples
 ///
 /// ```rust
-/// #[macro_use] extern crate handlebars;
-/// #[macro_use] extern crate serde_json;
-///
+/// # use handlebars::{handlebars_helper, Handlebars};
+/// # use serde_json::json;
 /// handlebars_helper!(is_above_10: |x: u64| x > 10);
 /// handlebars_helper!(is_above: |x: u64, { compare: u64 = 10 }| x > compare);
 ///
-/// # fn main() {
-/// #
-/// let mut handlebars = handlebars::Handlebars::new();
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut handlebars = Handlebars::new();
 /// handlebars.register_helper("is-above-10", Box::new(is_above_10));
 /// handlebars.register_helper("is-above", Box::new(is_above));
 ///
 /// let result = handlebars
-///     .render_template("{{#if (is-above-10 12)}}great!{{else}}okay{{/if}}", &json!({}))
-///     .unwrap();
+///     .render_template("{{#if (is-above-10 12)}}great!{{else}}okay{{/if}}", &json!({}))?;
 ///  assert_eq!(&result, "great!");
+///
 /// let result2 = handlebars
-///     .render_template("{{#if (is-above 12 compare=10)}}great!{{else}}okay{{/if}}", &json!({}))
-///     .unwrap();
+///     .render_template("{{#if (is-above 12 compare=10)}}great!{{else}}okay{{/if}}", &json!({}))?;
 ///  assert_eq!(&result2, "great!");
-/// # }
+/// # Ok(()) }
 /// ```
-
 #[macro_export]
 macro_rules! handlebars_helper {
     ($struct_name:ident: |$($name:ident: $tpe:tt$(<$($gen:ty),+>)?),*

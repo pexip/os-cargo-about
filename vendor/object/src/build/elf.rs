@@ -3,7 +3,10 @@ use alloc::vec::Vec;
 use core::convert::TryInto;
 use core::fmt;
 use core::marker::PhantomData;
+#[cfg(not(feature = "std"))]
 use hashbrown::HashMap;
+#[cfg(feature = "std")]
+use std::collections::HashMap;
 
 use crate::build::{ByteString, Bytes, Error, Id, IdPrivate, Item, Result, Table};
 use crate::elf;
@@ -116,7 +119,7 @@ impl<'data> Builder<'data> {
         let header = Elf::parse(data)?;
         let endian = header.endian()?;
         let is_mips64el = header.is_mips64el(endian);
-        let shstrndx = header.shstrndx(endian, data)? as usize;
+        let section_strings_index = header.section_strings_index(endian, data)?;
         let segments = header.program_headers(endian, data)?;
         let sections = header.sections(endian, data)?;
         let symbols = sections.symbols(endian, data, elf::SHT_SYMTAB)?;
@@ -179,8 +182,8 @@ impl<'data> Builder<'data> {
             builder.load_align = 1;
         }
 
-        for (index, section) in sections.iter().enumerate().skip(1) {
-            let id = SectionId(index - 1);
+        for (index, section) in sections.enumerate().skip(1) {
+            let id = SectionId(index.0 - 1);
             let relocations = if let Some((rels, link)) = section.rel(endian, data)? {
                 Self::read_relocations(
                     index,
@@ -214,15 +217,22 @@ impl<'data> Builder<'data> {
                 builder.gnu_hash_bloom_count = hash.bloom_count.get(endian);
                 builder.gnu_hash_bucket_count = hash.bucket_count.get(endian);
             }
+            let name = sections.section_name(endian, section)?;
             let data = match section.sh_type(endian) {
                 elf::SHT_NOBITS => SectionData::UninitializedData(section.sh_size(endian).into()),
+                // Section types that we treat as opaque data. In future, some of these could be
+                // changed to a parsed variant if we need to modify their contents.
                 elf::SHT_PROGBITS
                 | elf::SHT_INIT_ARRAY
                 | elf::SHT_FINI_ARRAY
-                | elf::SHT_PREINIT_ARRAY => SectionData::Data(section.data(endian, data)?.into()),
+                | elf::SHT_PREINIT_ARRAY
+                | elf::SHT_RELR
+                | elf::SHT_LLVM_DEPENDENT_LIBRARIES => {
+                    SectionData::Data(section.data(endian, data)?.into())
+                }
                 elf::SHT_REL | elf::SHT_RELA => relocations,
                 elf::SHT_SYMTAB => {
-                    if index == symbols.section().0 {
+                    if index == symbols.section() {
                         SectionData::Symbol
                     } else {
                         return Err(Error(format!(
@@ -232,7 +242,7 @@ impl<'data> Builder<'data> {
                     }
                 }
                 elf::SHT_SYMTAB_SHNDX => {
-                    if index == symbols.shndx_section().0 {
+                    if index == symbols.shndx_section() {
                         SectionData::SymbolSectionIndex
                     } else {
                         return Err(Error(format!(
@@ -242,7 +252,7 @@ impl<'data> Builder<'data> {
                     }
                 }
                 elf::SHT_DYNSYM => {
-                    if index == dynamic_symbols.section().0 {
+                    if index == dynamic_symbols.section() {
                         SectionData::DynamicSymbol
                     } else {
                         return Err(Error(format!(
@@ -252,12 +262,16 @@ impl<'data> Builder<'data> {
                     }
                 }
                 elf::SHT_STRTAB => {
-                    if index == symbols.string_section().0 {
+                    if index == symbols.string_section() {
                         SectionData::String
-                    } else if index == dynamic_symbols.string_section().0 {
+                    } else if index == dynamic_symbols.string_section() {
                         SectionData::DynamicString
-                    } else if index == shstrndx {
+                    } else if index == section_strings_index {
                         SectionData::SectionString
+                    } else if name == b".annobin.notes" {
+                        // Not actually a string table because nothing references the strings.
+                        // We simply need to preserve the data (similar to a .comment section).
+                        SectionData::Data(section.data(endian, data)?.into())
                     } else {
                         return Err(Error(format!(
                             "Unsupported SHT_STRTAB section at index {}",
@@ -338,7 +352,7 @@ impl<'data> Builder<'data> {
             builder.sections.push(Section {
                 id,
                 delete: false,
-                name: sections.section_name(endian, section)?.into(),
+                name: name.into(),
                 sh_type: section.sh_type(endian),
                 sh_flags,
                 sh_addr,
@@ -372,7 +386,7 @@ impl<'data> Builder<'data> {
 
     #[allow(clippy::too_many_arguments)]
     fn read_relocations<Elf, Rel, R>(
-        index: usize,
+        index: read::SectionIndex,
         endian: Elf::Endian,
         is_mips64el: bool,
         section: &'data Elf::SectionHeader,
@@ -427,7 +441,7 @@ impl<'data> Builder<'data> {
     }
 
     fn read_relocations_impl<Elf, Rel, const DYNAMIC: bool>(
-        index: usize,
+        index: read::SectionIndex,
         endian: Elf::Endian,
         is_mips64el: bool,
         rels: &'data [Rel],
@@ -440,17 +454,16 @@ impl<'data> Builder<'data> {
         let mut relocations = Vec::new();
         for rel in rels {
             let rel = (*rel).into();
-            let r_sym = rel.r_sym(endian, is_mips64el);
-            let symbol = if r_sym == 0 {
-                None
-            } else {
-                if r_sym as usize >= symbols_len {
+            let symbol = if let Some(symbol) = rel.symbol(endian, is_mips64el) {
+                if symbol.0 >= symbols_len {
                     return Err(Error(format!(
                         "Invalid symbol index {} in relocation section at index {}",
-                        r_sym, index,
+                        symbol, index,
                     )));
                 }
-                Some(SymbolId(r_sym as usize - 1))
+                Some(SymbolId(symbol.0 - 1))
+            } else {
+                None
             };
             relocations.push(Relocation {
                 r_offset: rel.r_offset(endian).into(),
@@ -523,8 +536,8 @@ impl<'data> Builder<'data> {
         Elf: FileHeader<Endian = Endianness>,
         R: ReadRef<'data>,
     {
-        for (index, symbol) in symbols.iter().enumerate().skip(1) {
-            let id = SymbolId(index - 1);
+        for (index, symbol) in symbols.enumerate().skip(1) {
+            let id = SymbolId(index.0 - 1);
             let section =
                 if let Some(section_index) = symbols.symbol_section(endian, symbol, index)? {
                     let section_id = section_index.0.wrapping_sub(1);
@@ -553,7 +566,7 @@ impl<'data> Builder<'data> {
     }
 
     fn read_attributes<Elf>(
-        index: usize,
+        index: read::SectionIndex,
         attributes: read::elf::AttributesSection<'data, Elf>,
         sections_len: usize,
         symbols_len: usize,
@@ -905,7 +918,9 @@ impl<'data> Builder<'data> {
                 if hash_id.is_some() {
                     hash = Some(elf::hash(&symbol.name));
                 }
-                if gnu_hash_id.is_some() && symbol.section.is_some() {
+                if gnu_hash_id.is_some()
+                    && (symbol.section.is_some() || symbol.st_shndx != elf::SHN_UNDEF)
+                {
                     gnu_hash = Some(elf::gnu_hash(&symbol.name));
                 }
             }
@@ -995,6 +1010,7 @@ impl<'data> Builder<'data> {
         // Count the versions and add version strings.
         let mut verdef_count = 0;
         let mut verdaux_count = 0;
+        let mut verdef_shared_base = false;
         let mut verneed_count = 0;
         let mut vernaux_count = 0;
         let mut out_version_files = vec![VersionFileOut::default(); self.version_files.len()];
@@ -1006,11 +1022,15 @@ impl<'data> Builder<'data> {
         for version in &self.versions {
             match &version.data {
                 VersionData::Def(def) => {
-                    verdef_count += 1;
-                    verdaux_count += def.names.len();
-                    for name in &def.names {
-                        writer.add_dynamic_string(name);
+                    if def.is_shared(verdef_count, self.version_base.as_ref()) {
+                        verdef_shared_base = true;
+                    } else {
+                        verdaux_count += def.names.len();
+                        for name in &def.names {
+                            writer.add_dynamic_string(name);
+                        }
                     }
+                    verdef_count += 1;
                 }
                 VersionData::Need(need) => {
                     vernaux_count += 1;
@@ -1454,13 +1474,18 @@ impl<'data> Builder<'data> {
                     SectionData::GnuVerdef => {
                         writer.write_align_gnu_verdef();
                         if let Some(version_base) = &self.version_base {
-                            writer.write_gnu_verdef(&write::elf::Verdef {
+                            let verdef = write::elf::Verdef {
                                 version: elf::VER_DEF_CURRENT,
                                 flags: elf::VER_FLG_BASE,
                                 index: 1,
                                 aux_count: 1,
                                 name: writer.get_dynamic_string(version_base),
-                            });
+                            };
+                            if verdef_shared_base {
+                                writer.write_gnu_verdef_shared(&verdef);
+                            } else {
+                                writer.write_gnu_verdef(&verdef);
+                            }
                         }
                         for version in &self.versions {
                             if let VersionData::Def(def) = &version.data {
@@ -1848,6 +1873,12 @@ impl<'data> Builder<'data> {
         }
         let mut version_file_used = vec![false; self.version_files.len()];
         for version in &mut self.versions {
+            if let VersionData::Need(need) = &version.data {
+                // This is a dummy version that is required if DT_RELR is used.
+                if need.name.as_slice() == b"GLIBC_ABI_DT_RELR" {
+                    version_used[version.id.0] = true;
+                }
+            }
             if !version_used[version.id.0] {
                 version.delete = true;
                 continue;
@@ -1975,8 +2006,10 @@ impl<'data> Builder<'data> {
         }
         for version in &self.versions {
             if let VersionData::Def(def) = &version.data {
+                if !def.is_shared(verdef_count, self.version_base.as_ref()) {
+                    verdaux_count += def.names.len();
+                }
                 verdef_count += 1;
-                verdaux_count += def.names.len();
             }
         }
         self.class().gnu_verdef_size(verdef_count, verdaux_count)
@@ -2988,6 +3021,13 @@ pub struct VersionDef<'data> {
     ///
     /// A combination of the `VER_FLG_*` constants.
     pub flags: u16,
+}
+
+impl<'data> VersionDef<'data> {
+    /// Optimise for the common case where the first version is the same as the base version.
+    fn is_shared(&self, index: usize, base: Option<&ByteString<'_>>) -> bool {
+        index == 1 && self.names.len() == 1 && self.names.first() == base
+    }
 }
 
 /// A GNU version dependency.
