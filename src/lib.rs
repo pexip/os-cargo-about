@@ -9,26 +9,23 @@ pub struct Krate(pub cm::Package);
 
 impl Krate {
     fn get_license_expression(&self) -> licenses::LicenseInfo {
-        match &self.0.license {
-            Some(license_field) => {
-                //. Reasons this can fail:
-                // * Empty! The rust crate used to validate this field has a bug
-                // https://github.com/rust-lang-nursery/license-exprs/issues/23
-                // * It also just does basic lexing, so parens, duplicate operators,
-                // unpaired exceptions etc can all fail validation
+        if let Some(license_field) = &self.0.license {
+            //. Reasons this can fail:
+            // * Empty! The rust crate used to validate this field has a bug
+            // https://github.com/rust-lang-nursery/license-exprs/issues/23
+            // * It also just does basic lexing, so parens, duplicate operators,
+            // unpaired exceptions etc can all fail validation
 
-                match spdx::Expression::parse(license_field) {
-                    Ok(validated) => licenses::LicenseInfo::Expr(validated),
-                    Err(err) => {
-                        log::error!("unable to parse license expression for '{}': {}", self, err);
-                        licenses::LicenseInfo::Unknown
-                    }
+            match spdx::Expression::parse(license_field) {
+                Ok(validated) => licenses::LicenseInfo::Expr(validated),
+                Err(err) => {
+                    log::error!("unable to parse license expression for '{self}': {err}");
+                    licenses::LicenseInfo::Unknown
                 }
             }
-            None => {
-                log::warn!("crate '{}' doesn't have a license field", self);
-                licenses::LicenseInfo::Unknown
-            }
+        } else {
+            log::warn!("crate '{self}' doesn't have a license field");
+            licenses::LicenseInfo::Unknown
         }
     }
 }
@@ -97,16 +94,20 @@ impl std::ops::Deref for Krate {
 
 pub type Krates = krates::Krates<Krate>;
 
+#[allow(clippy::too_many_arguments)]
 pub fn get_all_crates(
     cargo_toml: &krates::Utf8Path,
     no_default_features: bool,
     all_features: bool,
     features: Vec<String>,
     workspace: bool,
+    lock_opts: krates::LockOptions,
     cfg: &licenses::config::Config,
+    target_overrdes: &[String],
 ) -> anyhow::Result<Krates> {
     let mut mdc = krates::Cmd::new();
     mdc.manifest_path(cargo_toml);
+    mdc.lock_opts(lock_opts);
 
     // The metadata command builder is weird and only allows you to specify
     // one of these, but really you might need to do multiple of them
@@ -140,7 +141,15 @@ pub fn get_all_crates(
         builder.ignore_kind(krates::DepKind::Build, krates::Scope::NonWorkspace);
     }
 
-    builder.include_targets(cfg.targets.iter().map(|triple| (triple.as_str(), vec![])));
+    if target_overrdes.is_empty() {
+        builder.include_targets(cfg.targets.iter().map(|triple| (triple.as_str(), vec![])));
+    } else {
+        builder.include_targets(
+            target_overrdes
+                .iter()
+                .map(|triple| (triple.as_str(), vec![])),
+        );
+    }
 
     let graph = builder.build(mdc, |filtered: cm::Package| {
         if let Some(src) = filtered.source {
@@ -173,8 +182,7 @@ pub fn to_hex(bytes: &[u8]) -> String {
 pub fn validate_sha256(buffer: &str, expected: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         expected.len() == 64,
-        "checksum '{}' length is {} instead of expected 64",
-        expected,
+        "checksum '{expected}' length is {} instead of expected 64",
         expected.len()
     );
 
@@ -196,7 +204,7 @@ pub fn validate_sha256(buffer: &str, expected: &str) -> anyhow::Result<()> {
             b'a'..=b'f' => exp[0] - b'a' + 10,
             b'0'..=b'9' => exp[0] - b'0',
             c => {
-                anyhow::bail!("invalid byte in checksum '{}' @ {}: {}", expected, ind, c);
+                anyhow::bail!("invalid byte in checksum '{expected}' @ {ind}: {c}");
             }
         };
 
@@ -207,14 +215,186 @@ pub fn validate_sha256(buffer: &str, expected: &str) -> anyhow::Result<()> {
             b'a'..=b'f' => exp[1] - b'a' + 10,
             b'0'..=b'9' => exp[1] - b'0',
             c => {
-                anyhow::bail!("invalid byte in checksum '{}' @ {}: {}", expected, ind, c);
+                anyhow::bail!("invalid byte in checksum '{expected}' @ {ind}: {c}");
             }
         };
 
         if digest[ind] != cur {
-            anyhow::bail!("checksum mismatch, expected {}", expected);
+            anyhow::bail!("checksum mismatch, expected '{expected}'");
         }
     }
 
     Ok(())
+}
+
+#[cfg(target_family = "unix")]
+#[allow(unsafe_code)]
+pub fn is_powershell_parent() -> bool {
+    if !cfg!(target_os = "linux") {
+        // Making the assumption that no one on MacOS or any of the *BSDs uses powershell...
+        return false;
+    }
+
+    // SAFETY: no invariants to uphold
+    let mut parent_id = Some(unsafe { libc::getppid() });
+
+    while let Some(ppid) = parent_id {
+        let Ok(cmd) = std::fs::read_to_string(format!("/proc/{ppid}/cmdline")) else {
+            break;
+        };
+
+        let Some(proc) = cmd
+            .split('\0')
+            .next()
+            .and_then(|path| path.split('/').last())
+        else {
+            break;
+        };
+
+        if proc == "pwsh" {
+            return true;
+        }
+
+        let Ok(status) = std::fs::read_to_string(format!("/proc/{ppid}/status")) else {
+            break;
+        };
+
+        for line in status.lines() {
+            let Some(ppid) = line.strip_prefix("PPid:\t") else {
+                continue;
+            };
+
+            parent_id = ppid.parse().ok();
+            break;
+        }
+    }
+
+    false
+}
+
+#[cfg(target_family = "windows")]
+mod win_bindings;
+
+#[cfg(target_family = "windows")]
+#[allow(unsafe_code)]
+pub fn is_powershell_parent() -> bool {
+    use std::os::windows::ffi::OsStringExt as _;
+    use win_bindings::*;
+
+    struct NtHandle {
+        handle: isize,
+    }
+
+    impl Drop for NtHandle {
+        fn drop(&mut self) {
+            if self.handle != -1 {
+                unsafe {
+                    nt_close(self.handle);
+                }
+            }
+        }
+    }
+
+    let mut handle = Some(NtHandle { handle: -1 });
+
+    unsafe {
+        let reset = |fname: &mut [u16]| {
+            let ustr = &mut *fname.as_mut_ptr().cast::<UnicodeString>();
+            ustr.length = 0;
+            ustr.maximum_length = MaxPath as _;
+        };
+
+        // The API for this is extremely irritating, the struct and string buffer
+        // need to be the same :/
+        let mut file_name = [0u16; MaxPath as usize + std::mem::size_of::<UnicodeString>() / 2];
+
+        while let Some(ph) = handle {
+            let mut basic_info = std::mem::MaybeUninit::<ProcessBasicInformation>::uninit();
+            let mut length = 0;
+            if nt_query_information_process(
+                ph.handle,
+                Processinfoclass::ProcessBasicInformation,
+                basic_info.as_mut_ptr().cast(),
+                std::mem::size_of::<ProcessBasicInformation>() as _,
+                &mut length,
+            ) != StatusSuccess
+            {
+                break;
+            }
+
+            if length != std::mem::size_of::<ProcessBasicInformation>() as u32 {
+                break;
+            }
+
+            let basic_info = basic_info.assume_init();
+            reset(&mut file_name);
+
+            let ppid = basic_info.inherited_from_unique_process_id as isize;
+
+            if ppid == 0 || ppid == -1 {
+                break;
+            }
+
+            let mut parent_handle = -1;
+            let obj_attr = std::mem::zeroed();
+            let client_id = ClientId {
+                unique_process: ppid,
+                unique_thread: 0,
+            };
+            if nt_open_process(
+                &mut parent_handle,
+                ProcessAccessRights::ProcessQueryInformation,
+                &obj_attr,
+                &client_id,
+            ) != StatusSuccess
+            {
+                break;
+            }
+
+            handle = Some(NtHandle {
+                handle: parent_handle,
+            });
+
+            if nt_query_information_process(
+                parent_handle,
+                Processinfoclass::ProcessImageFileName,
+                file_name.as_mut_ptr().cast(),
+                (file_name.len() * 2) as _,
+                &mut length,
+            ) != StatusSuccess
+            {
+                break;
+            }
+
+            let ustr = &*file_name.as_ptr().cast::<UnicodeString>();
+            let os = std::ffi::OsString::from_wide(std::slice::from_raw_parts(
+                ustr.buffer,
+                (ustr.length >> 1) as usize,
+            ));
+
+            let path = std::path::Path::new(&os);
+            if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+                if stem == "pwsh" || stem == "powershell" {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    #[ignore = "call when actually run from powershell"]
+    fn is_powershell_true() {
+        assert!(super::is_powershell_parent());
+    }
+
+    #[test]
+    #[ignore = "call when not actually run from powershell"]
+    fn is_powershell_false() {
+        assert!(!super::is_powershell_parent());
+    }
 }

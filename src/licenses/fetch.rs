@@ -1,4 +1,4 @@
-use super::{config, Krate};
+use super::{Krate, config};
 use anyhow::Context as _;
 use krates::Utf8Path as Path;
 use reqwest::blocking::Client;
@@ -98,13 +98,27 @@ pub struct VcsInfo {
 /// but not in the actual published package is due to it being in the root but
 /// not copied into each sub-crate in the repository, we can just not re-retrieve
 /// the same file multiple times
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct GitCache {
     cache: Arc<parking_lot::RwLock<std::collections::HashMap<u64, Arc<String>>>>,
-    http_client: Client,
+    http_client: Option<Client>,
 }
 
 impl GitCache {
+    pub fn maybe_offline(http_client: Option<Client>) -> Self {
+        Self {
+            http_client,
+            cache: Default::default(),
+        }
+    }
+
+    pub fn online() -> Self {
+        Self {
+            http_client: Some(Client::new()),
+            cache: Default::default(),
+        }
+    }
+
     #[allow(clippy::unused_self)]
     fn retrieve_local(
         &self,
@@ -159,6 +173,11 @@ impl GitCache {
         let repo_url = url::Url::parse(repo)
             .with_context(|| format!("unable to parse repository url '{repo}'"))?;
 
+        let http_client = self
+            .http_client
+            .as_ref()
+            .context("unable to fetch remote repository data in offline mode")?;
+
         // Unfortunately the HTTP retrieval methods for most of the popular
         // providers require an API token to use, so instead we just use a
         // third party CDN, `raw.githack.com` for now until I can find a better
@@ -169,7 +188,7 @@ impl GitCache {
         let flavor = GitHostFlavor::from_repo(&repo_url)?;
 
         flavor
-            .fetch(&self.http_client, &repo_url, rev, path)
+            .fetch(http_client, &repo_url, rev, path)
             .with_context(|| format!("failed to fetch contents of '{path}' from repo '{repo}'"))
     }
 
@@ -205,20 +224,17 @@ impl GitCache {
                         format!("crate '{krate}' with registry source does not have a 'repository'")
                     })?;
 
-                    let sha1 = match commit_override {
-                        Some(co) => {
-                            log::debug!("using commit override '{co}' for crate '{krate}'");
-                            co.clone()
-                        }
-                        None => {
-                            let vcs_info_path = krate
-                                .manifest_path
-                                .parent()
-                                .unwrap()
-                                .join(".cargo_vcs_info.json");
+                    let sha1 = if let Some(co) = commit_override {
+                        log::debug!("using commit override '{co}' for crate '{krate}'");
+                        co.clone()
+                    } else {
+                        let vcs_info_path = krate
+                            .manifest_path
+                            .parent()
+                            .unwrap()
+                            .join(".cargo_vcs_info.json");
 
-                            Self::parse_vcs_info(&vcs_info_path)?.git.sha1
-                        }
+                        Self::parse_vcs_info(&vcs_info_path)?.git.sha1
                     };
 
                     let hash = {

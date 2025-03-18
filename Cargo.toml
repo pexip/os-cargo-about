@@ -1,13 +1,13 @@
 [package]
 name = "cargo-about"
-version = "0.6.2"
+version = "0.7.0"
 description = "Cargo plugin for generating a listing of all of the crates and the the terms under which they are licensed"
 authors = [
   "Embark <opensource@embark-studios.com>",
   "Jake Shadle <jake.shadle@embark-studios.com>",
 ]
-edition = "2021"
-rust-version = "1.74.0"
+edition = "2024"
+rust-version = "1.85.0"
 repository = "https://github.com/EmbarkStudios/cargo-about"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -20,12 +20,16 @@ exclude = ["media/"]
 [badges]
 maintenance = { status = "actively-developed" }
 
+[features]
+native-certs = ["reqwest/rustls-tls-native-roots"]
+
 [[bin]]
 name = "cargo-about"
 path = "src/cargo-about/main.rs"
 
 [profile.release]
 strip = "debuginfo"
+lto = true
 
 [dependencies]
 # Colorization
@@ -33,24 +37,26 @@ nu-ansi-term = "0.50"
 # Error facilities
 anyhow = "1.0"
 # License detection
-askalono = "0.4"
+askalono = "0.5"
 # API helpers for api.clearlydefined.io
 cd = { version = "0.3", features = ["blocking"] }
 # Argument parsing
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 # Diagnostic reporting
 codespan = "0.11"
 codespan-reporting = "0.11"
 # Logging helpers
-fern = "0.6"
+fern = "0.7"
 # Template engine for output
-handlebars = { version = "5.1", features = ["dir_source"] }
+handlebars = { version = "6.0", features = ["dir_source"] }
 # $HOME retrieval
 home = "0.5"
 # Directory walking
 ignore = "0.4"
 # Dependency graphing
-krates = "0.16.4"
+krates = { version = "0.18", features = ["serialize"] }
+# Parent process retrieval
+libc = "0.2"
 # Logging macros
 log = "0.4"
 # Better heap allocator over system one (usually)
@@ -69,6 +75,8 @@ ring = "0.17"
 # Oh gee what could it be
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# Used for checking version requirements
+semver = { version = "1.0", features = ["serde"] }
 # License expression parsing and evaluation
 spdx = { version = "0.10", features = ["text"] }
 # Log timestamps
@@ -78,9 +86,9 @@ toml = "0.8"
 # Manipulation of cargo manifests for diagnostic purposes
 toml_edit = "0.22"
 # Hashing
-twox-hash = "1.6"
+twox-hash = "2.0"
 # Url parsing
-url = "2.2"
+url = "2.5"
 
 [dev-dependencies]
 # Filesystems - Filesystem fixtures and assertions for testing

@@ -8,6 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.7.0] - 2025-02-25
+### Changed
+- [PR#275](https://github.com/EmbarkStudios/cargo-about/pull/275) updated crates.
+- [PR#275](https://github.com/EmbarkStudios/cargo-about/pull/275) moved to edition 2024 and rust 1.85.0 as the MSRV.
+
+## [0.6.6] - 2024-11-19
+### Added
+- [PR#268](https://github.com/EmbarkStudios/cargo-about/pull/268) resolved [#267](https://github.com/EmbarkStudios/cargo-about/issues/267) by adding a [`unicode-ident`](https://github.com/dtolnay/unicode-ident) workaround to compensate for the `LICENSE-UNICODE` file more closely matching the [`Unicode-3.0`](https://spdx.org/licenses/Unicode-3.0.html) SPDX identifier rather than the expected [`Unicode-DFS-2016`](https://spdx.org/licenses/Unicode-DFS-2016.html) one.
+
+## [0.6.5] - 2024-11-18
+### Added
+- [PR#261](https://github.com/EmbarkStudios/cargo-about/pull/261) resolved [#246](https://github.com/EmbarkStudios/cargo-about/issues/246) by adding an `--offline` (as well as `--locked` and `--frozen`) option to the `generate` command.
+- [PR#266](https://github.com/EmbarkStudios/cargo-about/pull/266) resolved [#230](https://github.com/EmbarkStudios/cargo-about/issues/230) by adding a `--target` option to `generate`, allowing one to specify one or more targets to filter the dependency graph by, overriding the `targets` configuration option.
+
+### Changed
+- [PR#262](https://github.com/EmbarkStudios/cargo-about/pull/262) resolved [#258](https://github.com/EmbarkStudios/cargo-about/issues/258) by using LTO for release builds, slightly decreasing binary sizes.
+
+### Fixed
+- [PR#263](https://github.com/EmbarkStudios/cargo-about/pull/263) resolved [#238](https://github.com/EmbarkStudios/cargo-about/issues/238) by adding the `native-certs` feature to use the native certificate store. This feature is not enabled by default as it is only required for corporate environments that man in the middle network traffic.
+- [PR#265](https://github.com/EmbarkStudios/cargo-about/pull/265) resolved [#198](https://github.com/EmbarkStudios/cargo-about/issues/198) by detecting if the parent process is powershell and exiting with an error if cargo-about's output is being redirected instead of using the `-o` option, as powershell is terrible and doesn't use utf-8 encoding by default.
+- [PR#266](https://github.com/EmbarkStudios/cargo-about/pull/266) resolved [#222](https://github.com/EmbarkStudios/cargo-about/issues/222) by adding some additional documentation on <https://clearlydefined.io>.
+
+## [0.6.4] - 2024-08-12
+### Fixed
+- [PR#254](https://github.com/EmbarkStudios/cargo-about/pull/254) reverted unintended `id` -> `short_id` field rename.
+
+## [0.6.3] **yanked** - 2024-08-12
+### Changed
+- [PR#251](https://github.com/EmbarkStudios/cargo-about/pull/251) updated crates and directly depend on `semver`.
+
+### Fixed
+- [PR#253](https://github.com/EmbarkStudios/cargo-about/pull/253) resolved [#250](https://github.com/EmbarkStudios/cargo-about/issues/250) by changing the example template to emit unique anchors.
+- [PR#253](https://github.com/EmbarkStudios/cargo-about/pull/253) resolved [#252](https://github.com/EmbarkStudios/cargo-about/issues/252) by ignoring `SIGPIPE`.
+
 ## [0.6.2] - 2024-05-31
 ### Changed
 - [PR#248](https://github.com/EmbarkStudios/cargo-about/pull/248) updated crates.
@@ -161,7 +195,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial add of the thing
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-about/compare/0.6.2...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-about/compare/0.7.0...HEAD
+[0.7.0]: https://github.com/EmbarkStudios/cargo-about/compare/0.6.6...0.7.0
+[0.6.6]: https://github.com/EmbarkStudios/cargo-about/compare/0.6.5...0.6.6
+[0.6.5]: https://github.com/EmbarkStudios/cargo-about/compare/0.6.4...0.6.5
+[0.6.4]: https://github.com/EmbarkStudios/cargo-about/compare/0.6.3...0.6.4
+[0.6.3]: https://github.com/EmbarkStudios/cargo-about/compare/0.6.2...0.6.3
 [0.6.2]: https://github.com/EmbarkStudios/cargo-about/compare/0.6.1...0.6.2
 [0.6.1]: https://github.com/EmbarkStudios/cargo-about/compare/0.6.0...0.6.1
 [0.6.0]: https://github.com/EmbarkStudios/cargo-about/compare/0.5.7...0.6.0
